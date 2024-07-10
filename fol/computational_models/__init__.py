@@ -1,5 +1,6 @@
 import importlib
 import pkgutil
+from .fe_model import FiniteElementModel
 
 # Dynamically import all submodules in the subpackage
 for loader, module_name, is_pkg in pkgutil.walk_packages(__path__):
@@ -7,4 +8,5 @@ for loader, module_name, is_pkg in pkgutil.walk_packages(__path__):
     globals()[module_name] = module
 
 # Optionally, define what should be accessible when * is used
-__all__ = [name for _, name, _ in pkgutil.iter_modules(__path__)]
+# __all__ = [name for _, name, _ in pkgutil.iter_modules(__path__)]
+__all__ = ['FiniteElementModel']
