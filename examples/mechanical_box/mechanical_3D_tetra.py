@@ -76,8 +76,6 @@ fol.Initialize()
 
 print(fol.output_size)
 
-hjh
-
 fol.Train(loss_functions_weights=[1],X_train=coeffs_matrix[eval_id].reshape(-1,1).T,batch_size=1,num_epochs=1000,
             learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",
             relative_error=1e-10,NN_params_save_file_name="NN_params_"+working_directory_name)

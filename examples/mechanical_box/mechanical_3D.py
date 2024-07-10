@@ -1,16 +1,16 @@
 import sys
 import os
 # Add the parent directory to sys.path
-parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 import numpy as np
-from computational_models import FiniteElementModel
-from loss_functions import MechanicalLoss3D
-from solvers import FiniteElementSolver
-from controls import FourierControl
-from deep_neural_networks import FiniteElementOperatorLearning
-from tools import *
+from fol.computational_models.fe_model import FiniteElementModel
+from fol.loss_functions.mechanical_2D_fe_quad import MechanicalLoss2D
+from fol.solvers.fe_solver import FiniteElementSolver
+from fol.controls.fourier_control import FourierControl
+from fol.deep_neural_networks.fe_operator_learning import FiniteElementOperatorLearning
+from fol.tools.usefull_functions import *
 import pickle
 
 # problem setup
