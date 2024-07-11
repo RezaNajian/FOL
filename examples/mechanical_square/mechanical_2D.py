@@ -1,9 +1,9 @@
 import sys
 import os
 # Add the parent directory to sys.path
-parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-if parent_dir not in sys.path:
-    sys.path.append(parent_dir)
+# parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+# if parent_dir not in sys.path:
+#     sys.path.append(parent_dir)
 import numpy as np
 from fol.computational_models.fe_model import FiniteElementModel
 from fol.loss_functions.mechanical_2D_fe_quad import MechanicalLoss2D
@@ -47,18 +47,20 @@ fourier_control = FourierControl("fourier_control",fourier_control_settings,fe_m
 create_random_coefficients = False
 if create_random_coefficients:
     number_of_random_samples = 200
-    coeffs_matrix = create_random_fourier_samples(fourier_control,number_of_random_samples)
-    export_dict = model_settings.copy()
+    coeffs_matrix,K_matrix = create_random_fourier_samples(fourier_control,number_of_random_samples)
+    # export_dict = model_settings.copy()
+    export_dict = {}
     export_dict["coeffs_matrix"] = coeffs_matrix
     export_dict["x_freqs"] = x_freqs
     export_dict["y_freqs"] = y_freqs
-    with open(f'fourier_control_dict_N_{model_settings["N"]}.pkl', 'wb') as f:
+    export_dict["z_freqs"] = z_freqs
+    with open(f'fourier_control_dict.pkl', 'wb') as f:
         pickle.dump(export_dict,f)
 else:
-    with open(f'fourier_control_dict_N_{model_settings["N"]}.pkl', 'rb') as f:
+    with open(f'fourier_control_dict.pkl', 'rb') as f:
         loaded_dict = pickle.load(f)
     
-    coeffs_matrix,_ = loaded_dict["coeffs_matrix"]
+    coeffs_matrix = loaded_dict["coeffs_matrix"]
 
 K_matrix = fourier_control.ComputeBatchControlledVariables(coeffs_matrix)
 
