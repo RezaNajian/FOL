@@ -5,6 +5,7 @@
 """
 from  .model import Model
 from fol.tools.decoration_functions import *
+import jax.numpy as jnp
 
 class FiniteElementModel(Model):
     """Base abstract model class.
@@ -43,6 +44,9 @@ class FiniteElementModel(Model):
     
     def GetNodesCoordinates(self):
         return self.nodes_dict["X"],self.nodes_dict["Y"],self.nodes_dict["Z"]
+    
+    def GetNodesCoordinatesMatrix(self):
+        return jnp.array([self.nodes_dict["X"],self.nodes_dict["Y"],self.nodes_dict["Z"]]).T
     
     def GetNodesX(self):
         return self.nodes_dict["X"]
