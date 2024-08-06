@@ -29,15 +29,16 @@ class ThermalLoss3DTetra(FiniteElementLoss):
         @jit
         def compute_at_gauss_point(xi,eta,zeta,total_weight):
             Nf = self.shape_function.evaluate(xi,eta,zeta)
-            conductivity_at_gauss = jnp.dot(Nf, de.squeeze()) * (1 + 
-                                    self.loss_settings["beta"]*(jnp.dot(Nf,te.squeeze()))**self.loss_settings["c"])
+            # conductivity_at_gauss = jnp.dot(Nf, de.squeeze()) * (1 + 
+            #                         self.loss_settings["beta"]*(jnp.dot(Nf,te.squeeze()))**self.loss_settings["c"])
+            conductivity_at_gauss = jnp.ones((1,1))
             dN_dxi = self.shape_function.derivatives(xi,eta,zeta)
             J = jnp.dot(dN_dxi.T, xyze.T)
             detJ = jnp.linalg.det(J)
             invJ = jnp.linalg.inv(J)
             B = jnp.dot(invJ,dN_dxi.T)
             gp_stiffness = conductivity_at_gauss * jnp.dot(B.T, B) * detJ * total_weight
-            gp_f = total_weight * detJ * body_force *  Nf.reshape(-1,1) 
+            gp_f = total_weight * detJ * jnp.dot(Nf, de.squeeze()) * body_force * Nf.reshape(-1,1)
             return gp_stiffness,gp_f
         @jit
         def vmap_compatible_compute_at_gauss_point(gp_index):
@@ -52,19 +53,19 @@ class ThermalLoss3DTetra(FiniteElementLoss):
         Se = jnp.sum(k_gps, axis=0)
         Fe = jnp.sum(f_gps, axis=0)
         element_residuals = jax.lax.stop_gradient(Se @ te - Fe)
-        return  ((te.T @ element_residuals)[0,0]), 2 * (Se @ te - Fe), 2 * Se
+        return  ((1/2)*(te.T @ element_residuals)[0,0]), (Se @ te - Fe), Se
 
-    def ComputeElementEnergy(self,xyze,de,te,body_force=jnp.zeros((1,1))):
+    def ComputeElementEnergy(self,xyze,de,te,body_force=jnp.ones((1,1))):
         return self.ComputeElement(xyze,de,te,body_force)[0]
 
-    def ComputeElementResidualsAndStiffness(self,xyze,de,te,body_force=jnp.zeros((1,1))):
+    def ComputeElementResidualsAndStiffness(self,xyze,de,te,body_force=jnp.ones((1,1))):
         _,re,ke = self.ComputeElement(xyze,de,te,body_force)
         return re,ke
 
-    def ComputeElementResiduals(self,xyze,de,te,body_force=jnp.zeros((1,1))):
+    def ComputeElementResiduals(self,xyze,de,te,body_force=jnp.ones((1,1))):
         return self.ComputeElement(xyze,de,te,body_force)[1]
     
-    def ComputeElementStiffness(self,xyze,de,te,body_force=jnp.zeros((1,1))):
+    def ComputeElementStiffness(self,xyze,de,te,body_force=jnp.ones((1,1))):
         return self.ComputeElement(xyze,de,te,body_force)[2]
 
     @partial(jit, static_argnums=(0,))
