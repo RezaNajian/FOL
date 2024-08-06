@@ -19,8 +19,8 @@ class MechanicalLoss3DTetra(FiniteElementLoss):
 
     """
     @print_with_timestamp_and_execution_time
-    def __init__(self, name: str, fe_model: FiniteElementModel, loss_settings: dict={}):
-        super().__init__(name,fe_model,["Ux","Uy","Uz"],{**loss_settings,"compute_dims":3})
+    def __init__(self, name: str, fe_model: FiniteElementModel, loss_settings: dict={}, dirichlet_bc_dict: dict={}):
+        super().__init__(name,fe_model,["Ux","Uy","Uz"],{**loss_settings,"compute_dims":3}, dirichlet_bc_dict)
         self.shape_function = TetrahedralShapeFunction()
 
         # construction of the constitutive matrix

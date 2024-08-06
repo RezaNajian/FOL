@@ -40,3 +40,27 @@ def fol_print(message):
         print(f"{current_time} - Info : {caller_class}.{caller_function} - {message}")
     else:
         print(f"{current_time} - Info : {caller_function} - {message}")
+
+def fol_error(message):
+    # Get the current time and date
+    now = datetime.now()
+    current_time = now.strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Get the caller's frame
+    caller_frame = inspect.stack()[1]
+    frame = caller_frame.frame
+    
+    # Get the caller's class and function name
+    caller_class = None
+    if 'self' in frame.f_locals:
+        caller_class = frame.f_locals['self'].__class__.__name__
+    caller_function = caller_frame.function
+    
+    # Print the error message with the required information and stop execution
+    if caller_class:
+        print(f"{current_time} - Error : {caller_class}.{caller_function} - {message}")
+    else:
+        print(f"{current_time} - Error : {caller_function} - {message}")
+    
+    # Stop the execution
+    raise SystemExit

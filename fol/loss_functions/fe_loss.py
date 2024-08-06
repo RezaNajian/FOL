@@ -20,32 +20,24 @@ class FiniteElementLoss(Loss):
     This is the base class for the loss functions require FE formulation.
 
     """
-    def __init__(self, name: str, fe_model: FiniteElementModel, ordered_dofs: list, loss_settings: dict={}):
+    def __init__(self, name: str, fe_model: FiniteElementModel, ordered_dofs: list, loss_settings: dict, dirichlet_bc_dict: dict={}):
         super().__init__(name)
         self.fe_model = fe_model
         self.dofs = ordered_dofs
         self.loss_settings = loss_settings
-        self.number_of_dirichlet_dofs = 0
-        self.number_of_unknown_dofs = 0
-        for dof in self.dofs:
-            if not dof in self.fe_model.GetDofsDict().keys():
-                raise ValueError(f"No boundary conditions found for dof {dof} in dofs_dict of fe model ! ")
-            if not "non_dirichlet_nodes_ids" in self.fe_model.GetDofsDict()[dof].keys():
-                raise ValueError(f"No non_dirichlet_nodes_ids found for dof {dof} in dofs_dict of fe model ! ")
-            if not "dirichlet_nodes_ids" in self.fe_model.GetDofsDict()[dof].keys():
-                raise ValueError(f"No dirichlet_nodes_ids found for dof {dof} in dofs_dict of fe model ! ")
-            if not "dirichlet_nodes_dof_value" in self.fe_model.GetDofsDict()[dof].keys():
-                raise ValueError(f"No dirichlet_nodes_dof_value found for dof {dof} in dofs_dict of fe model ! ")
-
-            self.number_of_dirichlet_dofs += self.fe_model.GetDofsDict()[dof]["dirichlet_nodes_ids"].shape[-1]
-            self.number_of_unknown_dofs += self.fe_model.GetDofsDict()[dof]["non_dirichlet_nodes_ids"].shape[-1]
-
-        if len(self.dofs) * self.fe_model.GetNumberOfNodes() != self.number_of_dirichlet_dofs + self.number_of_unknown_dofs:
-            raise ValueError(f"number of dirichlet dofs: {self.number_of_dirichlet_dofs} + number of unknown dofs:" \
-                             + f"{self.number_of_unknown_dofs} do not match with number of dofs: {len(self.dofs)} * number of nodes: {self.fe_model.GetNumberOfNodes()} ")
-
-        self.total_number_of_dofs = len(self.dofs) * self.fe_model.GetNumberOfNodes()
         self.number_dofs_per_node = len(self.dofs)
+        self.dirichlet_bc_dict = dirichlet_bc_dict
+        self.total_number_of_dofs = len(self.dofs) * self.fe_model.GetNumberOfNodes()
+        self.dof_dict = self.fe_model.GetDofsDict(self.dofs,self.dirichlet_bc_dict)
+        self.non_dirichlet_indices = self.dof_dict["non_dirichlet_indices"]
+        self.dirichlet_indices = self.dof_dict["dirichlet_indices"]
+        self.dirichlet_values = self.dof_dict["dirichlet_values"]
+        self.number_of_unknown_dofs = self.non_dirichlet_indices.size
+
+        # create full solution vector
+        self.solution_vector = jnp.zeros(self.total_number_of_dofs)
+        # apply dirichlet bcs
+        self.solution_vector = self.solution_vector.at[self.dirichlet_indices].set(self.dirichlet_values)
 
         # now prepare gauss integration
         if "num_gp" in self.loss_settings.keys():
@@ -168,18 +160,8 @@ class FiniteElementLoss(Loss):
     
     @partial(jit, static_argnums=(0,))
     def ExtendUnknowDOFsWithBC(self,unknown_dofs):
-        full_dofs = jnp.zeros(self.total_number_of_dofs)
-        unknown_dof_start_index = 0
-        for dof_index,dof in enumerate(self.dofs):
-            # apply drichlet dofs
-            dirichlet_indices = self.number_dofs_per_node*self.fe_model.GetDofsDict()[dof]["dirichlet_nodes_ids"] + dof_index
-            full_dofs = full_dofs.at[dirichlet_indices].set(self.fe_model.GetDofsDict()[dof]["dirichlet_nodes_dof_value"])
-            # apply non-drichlet dofs
-            non_dirichlet_indices = self.number_dofs_per_node*self.fe_model.GetDofsDict()[dof]["non_dirichlet_nodes_ids"] + dof_index
-            unknown_dof_end_index = unknown_dof_start_index + non_dirichlet_indices.shape[-1]
-            full_dofs = full_dofs.at[non_dirichlet_indices].set(unknown_dofs[unknown_dof_start_index:unknown_dof_end_index])
-            unknown_dof_start_index = unknown_dof_end_index
-        return full_dofs
+        self.solution_vector = self.solution_vector.at[self.non_dirichlet_indices].set(unknown_dofs)
+        return self.solution_vector
     
     @partial(jit, static_argnums=(0,))
     def ApplyBCOnR(self,full_residual_vector):
