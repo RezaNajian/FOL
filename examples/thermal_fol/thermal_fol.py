@@ -27,7 +27,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     fe_model = FiniteElementModel("FE_model",model_info)
 
     # create thermal loss
-    thermal_loss_3d = ThermalLoss3DTetra("thermal_loss_3d",fe_model,{"beta":2,"c":4})
+    thermal_loss_3d = ThermalLoss3DTetra("thermal_loss_3d",fe_model,{"beta":0,"c":4})
 
     # create Fourier parametrization/control
     x_freqs = np.array([1,2,3])
@@ -64,7 +64,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
             io.mesh_io.write(solution_file)
 
     # specify id of the K of interest
-    eval_id = 5
+    eval_id = -1
     io.mesh_io.point_data['K'] = np.array(K_matrix[eval_id,:])
 
     # now we need to create, initialize and train fol
@@ -81,7 +81,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 
     # solve FE here
     if solve_FE: 
-        first_fe_solver = NonLinearSolver("first_fe_solver",thermal_loss_3d,relative_error=1e-5,max_num_itr=20)
+        first_fe_solver = NonLinearSolver("first_fe_solver",thermal_loss_3d,relative_error=1e-5,max_num_itr=5,load_incr=1)
         start_time = time.process_time()
         FE_T = np.array(first_fe_solver.SingleSolve(K_matrix[eval_id],np.zeros(fe_model.GetNumberOfNodes())))  
         print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
