@@ -1,6 +1,6 @@
 """
  Authors: Reza Najian Asl, https://github.com/RezaNajian
- Date: June, 2024
+ Date: April, 2024
  License: FOL/License.txt
 """
 from  .fe_loss import FiniteElementLoss
@@ -12,8 +12,8 @@ from fol.tools.decoration_functions import *
 from fol.tools.fem_utilities import *
 from fol.computational_models.fe_model import FiniteElementModel
 
-class ThermalLoss3DTetra(FiniteElementLoss):
-    """FE-based Thermal loss
+class ThermalLoss3D(FiniteElementLoss):
+    """FE-based 3D Thermal loss
 
     This is the base class for the loss functions require FE formulation.
 
@@ -21,24 +21,25 @@ class ThermalLoss3DTetra(FiniteElementLoss):
     @print_with_timestamp_and_execution_time
     def __init__(self, name: str, fe_model: FiniteElementModel, loss_settings: dict={}):
         super().__init__(name,fe_model,["T"],{**loss_settings,"compute_dims":3})
-        self.shape_function = TetrahedralShapeFunction()
+        self.shape_function = HexahedralShapeFunction()
 
     @partial(jit, static_argnums=(0,))
-    def ComputeElement(self,xyze,de,te,body_force=10):
+    def ComputeElement(self,xyze,de,te,body_force=10.0):
         xyze = jnp.array([xyze[::3], xyze[1::3], xyze[2::3]])
         @jit
         def compute_at_gauss_point(xi,eta,zeta,total_weight):
             Nf = self.shape_function.evaluate(xi,eta,zeta)
             # conductivity_at_gauss = jnp.dot(Nf, de.squeeze()) * (1 + 
             #                         self.loss_settings["beta"]*(jnp.dot(Nf,te.squeeze()))**self.loss_settings["c"])
-            conductivity_at_gauss = jnp.ones((1,1))
+            conductivity_at_gauss = 1
+            heatSource_at_gauss = jnp.dot(Nf, de.squeeze()) * body_force
             dN_dxi = self.shape_function.derivatives(xi,eta,zeta)
             J = jnp.dot(dN_dxi.T, xyze.T)
             detJ = jnp.linalg.det(J)
             invJ = jnp.linalg.inv(J)
             B = jnp.dot(invJ,dN_dxi.T)
             gp_stiffness = conductivity_at_gauss * jnp.dot(B.T, B) * detJ * total_weight
-            gp_f = total_weight * detJ * jnp.dot(Nf, de.squeeze()) * body_force * Nf.reshape(-1,1)
+            gp_f = total_weight * detJ * heatSource_at_gauss * Nf.reshape(-1,1) 
             return gp_stiffness,gp_f
         @jit
         def vmap_compatible_compute_at_gauss_point(gp_index):
@@ -53,46 +54,46 @@ class ThermalLoss3DTetra(FiniteElementLoss):
         Se = jnp.sum(k_gps, axis=0)
         Fe = jnp.sum(f_gps, axis=0)
         element_residuals = jax.lax.stop_gradient(Se @ te - Fe)
-        return  ((1/2)*(te.T @ element_residuals)[0,0]), (Se @ te - Fe), Se
+        return  ((te.T @ element_residuals)[0,0]), 2 * (Se @ te - Fe), 2 * Se
+    
+    def ComputeElementEnergy(self,xyze,de,uvwe,body_force=10.0):
+        return self.ComputeElement(xyze,de,uvwe,body_force)[0]
 
-    def ComputeElementEnergy(self,xyze,de,te,body_force=10):
-        return self.ComputeElement(xyze,de,te,body_force)[0]
-
-    def ComputeElementResidualsAndStiffness(self,xyze,de,te,body_force=10):
-        _,re,ke = self.ComputeElement(xyze,de,te,body_force)
+    def ComputeElementResidualsAndStiffness(self,xyze,de,uvwe,body_force=10.0):
+        _,re,ke = self.ComputeElement(xyze,de,uvwe,body_force)
         return re,ke
 
-    def ComputeElementResiduals(self,xyze,de,te,body_force=10):
-        return self.ComputeElement(xyze,de,te,body_force)[1]
+    def ComputeElementResiduals(self,xyze,de,uvwe,body_force=10.0):
+        return self.ComputeElement(xyze,de,uvwe,body_force)[1]
     
-    def ComputeElementStiffness(self,xyze,de,te,body_force=10):
-        return self.ComputeElement(xyze,de,te,body_force)[2]
+    def ComputeElementStiffness(self,xyze,de,uvwe,body_force=10.0):
+        return self.ComputeElement(xyze,de,uvwe,body_force)[2]
 
     @partial(jit, static_argnums=(0,))
-    def ComputeElementResidualsVmapCompatible(self,element_id,elements_nodes,X,Y,Z,C,T):
+    def ComputeElementResidualsVmapCompatible(self,element_id,elements_nodes,X,Y,Z,C,UV):
         return self.ComputeElementResiduals(jnp.ravel(jnp.column_stack((X[elements_nodes[element_id]],
                                                                      Y[elements_nodes[element_id]],
                                                                      Z[elements_nodes[element_id]]))),
                                                                      C[elements_nodes[element_id]],
-                                                                     T[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
+                                                                     UV[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
                                                                      jnp.arange(self.number_dofs_per_node))].reshape(-1,1))
 
     @partial(jit, static_argnums=(0,))
-    def ComputeElementResidualsAndStiffnessVmapCompatible(self,element_id,elements_nodes,X,Y,Z,C,T):
+    def ComputeElementResidualsAndStiffnessVmapCompatible(self,element_id,elements_nodes,X,Y,Z,C,UV):
         return self.ComputeElementResidualsAndStiffness(jnp.ravel(jnp.column_stack((X[elements_nodes[element_id]],
                                                                      Y[elements_nodes[element_id]],
                                                                      Z[elements_nodes[element_id]]))),
                                                                      C[elements_nodes[element_id]],
-                                                                     T[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
+                                                                     UV[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
                                                                      jnp.arange(self.number_dofs_per_node))].reshape(-1,1))
 
     @partial(jit, static_argnums=(0,))
-    def ComputeElementEnergyVmapCompatible(self,element_id,elements_nodes,X,Y,Z,C,T):
+    def ComputeElementEnergyVmapCompatible(self,element_id,elements_nodes,X,Y,Z,C,UV):
         return self.ComputeElementEnergy(jnp.ravel(jnp.column_stack((X[elements_nodes[element_id]],
                                                                      Y[elements_nodes[element_id]],
                                                                      Z[elements_nodes[element_id]]))),
                                                                      C[elements_nodes[element_id]],
-                                                                     T[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
+                                                                     UV[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
                                                                      jnp.arange(self.number_dofs_per_node))].reshape(-1,1))
 
     @partial(jit, static_argnums=(0,))
@@ -103,5 +104,4 @@ class ThermalLoss3DTetra(FiniteElementLoss):
         avg_elem_energy = jax.lax.stop_gradient(jnp.mean(elems_energies))
         max_elem_energy = jax.lax.stop_gradient(jnp.max(elems_energies))
         min_elem_energy = jax.lax.stop_gradient(jnp.min(elems_energies))
-        return jnp.abs(jnp.sum(elems_energies)),(min_elem_energy,max_elem_energy,avg_elem_energy)
- 
+        return jnp.sum(elems_energies),(0,max_elem_energy,avg_elem_energy)

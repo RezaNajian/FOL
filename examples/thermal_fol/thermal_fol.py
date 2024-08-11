@@ -64,7 +64,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
             io.mesh_io.write(solution_file)
 
     # specify id of the K of interest
-    eval_id = -1
+    eval_id = 69
     io.mesh_io.point_data['K'] = np.array(K_matrix[eval_id,:])
 
     # now we need to create, initialize and train fol
