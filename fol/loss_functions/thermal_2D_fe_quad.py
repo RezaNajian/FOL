@@ -28,14 +28,17 @@ class ThermalLoss2D(FiniteElementLoss):
         @jit
         def compute_at_gauss_point(xi,eta,total_weight):
             Nf = self.shape_function.evaluate(xi,eta)
-            conductivity_at_gauss = jnp.dot(Nf, Ke.squeeze())
+            conductivity_at_gauss = 1
+            heat_source_at_gauss = jnp.dot(Nf, Ke.squeeze()) * body_force
             dN_dxi = self.shape_function.derivatives(xi,eta)
             J = jnp.dot(dN_dxi.T, xye.T)
             detJ = jnp.linalg.det(J)
             invJ = jnp.linalg.inv(J)
             B = jnp.dot(invJ,dN_dxi.T)
-            gp_stiffness = conductivity_at_gauss * jnp.dot(B.T, B) * detJ * total_weight
-            gp_f = total_weight * detJ * body_force *  Nf.reshape(-1,1) 
+            gp_stiffness = jnp.dot(B.T, B) * detJ * total_weight
+            gp_f = total_weight * detJ * heat_source_at_gauss * Nf.reshape(-1,1)
+            # jax.debug.print("fe: {f}", f=gp_f) 
+            # jax.debug.print("body_force: {f}", f=body_force)
             return gp_stiffness,gp_f
         @jit
         def vmap_compatible_compute_at_gauss_point(gp_index):
@@ -49,17 +52,17 @@ class ThermalLoss2D(FiniteElementLoss):
         element_residuals = jax.lax.stop_gradient(Se @ Te - Fe)
         return  ((Te.T @ element_residuals)[0,0]), 2 * (Se @ Te - Fe), 2 * Se
     
-    def ComputeElementEnergy(self,xyze,de,uvwe,body_force=0.0):
+    def ComputeElementEnergy(self,xyze,de,uvwe,body_force=-10.0):
         return self.ComputeElement(xyze,de,uvwe,body_force)[0]
 
-    def ComputeElementResidualsAndStiffness(self,xyze,de,uvwe,body_force=0.0):
+    def ComputeElementResidualsAndStiffness(self,xyze,de,uvwe,body_force=-10.0):
         _,re,ke = self.ComputeElement(xyze,de,uvwe,body_force)
         return re,ke
 
-    def ComputeElementResiduals(self,xyze,de,uvwe,body_force=0.0):
+    def ComputeElementResiduals(self,xyze,de,uvwe,body_force=-10.0):
         return self.ComputeElement(xyze,de,uvwe,body_force)[1]
     
-    def ComputeElementStiffness(self,xyze,de,uvwe,body_force=0.0):
+    def ComputeElementStiffness(self,xyze,de,uvwe,body_force=-10.0):
         return self.ComputeElement(xyze,de,uvwe,body_force)[2]
 
     @partial(jit, static_argnums=(0,))

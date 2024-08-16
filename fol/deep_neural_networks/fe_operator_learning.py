@@ -107,7 +107,8 @@ class FiniteElementOperatorLearning(DeepNetwork):
             (batch_loss,(batch_dict)),batch_loss_grads = jax.value_and_grad(ComputeBatchSingleLossValue,argnums=1,has_aux=True)(batch_input,NN_params,loss_index)
             losses_dict.update(batch_dict)
             loss_weight = self.loss_functions_weights[loss_index]
-            total_loss += loss_weight * batch_loss
+            total_loss += loss_weight * batch_loss 
+            # total_loss += jnp.abs(loss_weight * batch_loss)
             flat_loss_grads = self.flatten_NN_data(batch_loss_grads)
             flat_loss_grads /= jnp.linalg.norm(flat_loss_grads,ord=2)
             total_loss_grads = jnp.add(total_loss_grads,loss_weight * flat_loss_grads)
