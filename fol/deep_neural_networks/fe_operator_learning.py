@@ -7,7 +7,7 @@ from .deep_network import DeepNetwork
 import jax
 import jax.numpy as jnp
 from jax.nn import relu,sigmoid,swish,tanh,leaky_relu,elu
-from jax import random,jit,vmap
+from jax import random,jit,grad,vmap,jacfwd
 from functools import partial
 from fol.tools.decoration_functions import *
 
@@ -46,8 +46,8 @@ class FiniteElementOperatorLearning(DeepNetwork):
         for n_in, n_out in zip(layer_sizes[:-1], layer_sizes[1:]):
             key_w, rng_key = random.split(rng_key)
             limit = jnp.sqrt(6 / (n_in + n_out))
-            # weights = random.uniform(key_w, (n_in, n_out), minval=-limit, maxval=limit)
-            weights = jnp.zeros((n_in, n_out))
+            weights = random.uniform(key_w, (n_in, n_out), minval=-limit, maxval=limit)
+            # weights = jnp.zeros((n_in, n_out))
             biases = jnp.zeros(n_out)
             self.NN_params.append((weights, biases))
         super().InitializeParameters()
@@ -88,11 +88,12 @@ class FiniteElementOperatorLearning(DeepNetwork):
             unflat_data.append((new_weights, new_biases))
         return unflat_data
 
-    @partial(jit, static_argnums=(0,))
+    # @partial(jit, static_argnums=(0,))
     def ComputeTotalLossValueAndGrad(self,NN_params,batch_input):
         total_loss = 0.0
         total_loss_grads = jnp.zeros((self.total_number_of_NN_params))
         losses_dict = {}
+
         def ComputeSingleLossValue(x_input,NN_params,loss_index):
             NN_output = self.ForwardPass(x_input,NN_params)
             control_output = self.control.ComputeControlledVariables(x_input)
@@ -103,8 +104,35 @@ class FiniteElementOperatorLearning(DeepNetwork):
             loss_name = self.loss_functions[loss_index].GetName()
             return jnp.mean(batch_losses), ({loss_name+"_min":jnp.min(batch_mins),loss_name+"_max":jnp.max(batch_maxs),loss_name+"_avg":jnp.mean(batch_avgs)})        
 
+        def compute_residuals(x_input,NN_params,loss_index):
+            NN_output = self.ForwardPass(x_input,NN_params)
+            control_output = self.control.ComputeControlledVariables(x_input)
+            residuals = self.loss_functions[loss_index].ComputeSingleLoss(control_output,NN_output)
+            return residuals
+
+        def ComputeSensSingleLossValue(x_input,NN_params,loss_index):
+            DR_DcK = jnp.squeeze(jacfwd(compute_residuals,argnums=0)(x_input,NN_params,loss_index))
+            function_to_be_diff = jnp.sum(DR_DcK**2)
+            average_residual = jnp.sqrt(jnp.mean(DR_DcK**2))
+            average_residual = jax.lax.stop_gradient(average_residual)
+            max_residual = jnp.max(jnp.abs(DR_DcK))
+            max_residual = jax.lax.stop_gradient(max_residual)
+            min_residual = jnp.min(jnp.abs(DR_DcK))
+            min_residual = jax.lax.stop_gradient(min_residual)
+            return function_to_be_diff, (min_residual,max_residual,average_residual)
+
+        def ComputeBatchSensSingleLossValue(batch_input,NN_params,loss_index):
+            batch_losses,(batch_mins,batch_maxs,batch_avgs) = vmap(ComputeSensSingleLossValue, (0,None,None))(batch_input,NN_params,loss_index)
+            loss_name = self.loss_functions[loss_index].GetName()
+            return jnp.mean(batch_losses), ({loss_name+"_min":jnp.min(batch_mins),loss_name+"_max":jnp.max(batch_maxs),loss_name+"_avg":jnp.mean(batch_avgs)}) 
+
         for loss_index,loss_func in enumerate(self.loss_functions):
-            (batch_loss,(batch_dict)),batch_loss_grads = jax.value_and_grad(ComputeBatchSingleLossValue,argnums=1,has_aux=True)(batch_input,NN_params,loss_index)
+
+            if loss_func.GetName() == "thermal_loss_3d_residual_sens":
+                (batch_loss,(batch_dict)),batch_loss_grads = jax.value_and_grad(ComputeBatchSensSingleLossValue,argnums=1,has_aux=True)(batch_input,NN_params,loss_index)
+            else:
+                (batch_loss,(batch_dict)),batch_loss_grads = jax.value_and_grad(ComputeBatchSingleLossValue,argnums=1,has_aux=True)(batch_input,NN_params,loss_index)
+
             losses_dict.update(batch_dict)
             loss_weight = self.loss_functions_weights[loss_index]
             total_loss += loss_weight * batch_loss
