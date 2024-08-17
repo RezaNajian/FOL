@@ -532,7 +532,10 @@ def create_clean_directory(case_dir):
     # Create the new directory
     os.makedirs(case_dir)
 
-def plot_mesh_vec_data_paper_temp(vectors_list,plot_name:str):
+def plot_mesh_vec_data_paper_temp(vectors_list:list,title_list:list,plot_name:str):
+    
+    if len(vectors_list) != 3 or len(title_list) != 3:
+        raise ValueError('vector list and title list should have 3 components')
     fontsize = 16
     fig, axs = plt.subplots(2, 4, figsize=(20, 8))  # Adjusted to 4 columns
 
@@ -542,7 +545,7 @@ def plot_mesh_vec_data_paper_temp(vectors_list,plot_name:str):
     im = axs[0, 0].imshow(data.reshape(N, N), cmap='viridis', aspect='equal')
     axs[0, 0].set_xticks([])
     axs[0, 0].set_yticks([])
-    axs[0, 0].set_title('Elasticity Morph.', fontsize=fontsize)
+    axs[0, 0].set_title(title_list[0], fontsize=fontsize)
     cbar = fig.colorbar(im, ax=axs[0, 0], pad=0.02, shrink=0.7)
     cbar.ax.tick_params(labelsize=fontsize)
     cbar.ax.yaxis.labelpad = 5
@@ -554,7 +557,7 @@ def plot_mesh_vec_data_paper_temp(vectors_list,plot_name:str):
     axs[0, 1].set_yticks([])
     axs[0, 1].set_xticklabels([])  # Remove text on x-axis
     axs[0, 1].set_yticklabels([])  # Remove text on y-axis
-    axs[0, 1].set_title(r'Mesh Grid: $51 \times 51$', fontsize=fontsize)
+    axs[0, 1].set_title(r'Mesh Grid: {} $\times {}$'.format(N,N), fontsize=fontsize)
     axs[0, 1].grid(True, color='red', linestyle='-', linewidth=1)  # Adding solid grid lines with red color
     axs[0, 1].xaxis.grid(True)
     axs[0, 1].yaxis.grid(True)
@@ -590,11 +593,11 @@ def plot_mesh_vec_data_paper_temp(vectors_list,plot_name:str):
     # Plot cross-sections along x-axis at y=0.5 for U (FOL and FEM) in the second row, fourth column
     y_idx = int(N * 0.5)
     U1 = vectors_list[0].reshape(N, N)
-    axs[0, 3].plot(np.linspace(0, 1, N), U1[y_idx, :], label='Conductivity', color='black')
+    axs[0, 3].plot(np.linspace(0, 1, N), U1[y_idx, :], label=title_list[0], color='black')
     axs[0, 3].set_xlim([0, 1])
     #axs[0, 3].set_ylim([min(U1[y_idx, :].min()), max(U1[y_idx, :].max())])
     axs[0, 3].set_aspect(aspect='auto')
-    axs[0, 3].set_title('Cross-section of K at y=0.5', fontsize=fontsize)
+    axs[0, 3].set_title('Cross-section of Q at y=0.5', fontsize=fontsize)
     axs[0, 3].legend(fontsize=fontsize)
     axs[0, 3].grid(True)
     axs[0, 3].set_xlabel('x', fontsize=fontsize)
@@ -606,7 +609,7 @@ def plot_mesh_vec_data_paper_temp(vectors_list,plot_name:str):
     im = axs[1, 0].imshow(data.reshape(N, N), cmap='coolwarm', aspect='equal')
     axs[1, 0].set_xticks([])
     axs[1, 0].set_yticks([])
-    axs[1, 0].set_title('$T$, FOL', fontsize=fontsize)
+    axs[1, 0].set_title(title_list[1], fontsize=fontsize)
     cbar = fig.colorbar(im, ax=axs[1, 0], pad=0.02, shrink=0.7)
     cbar.ax.tick_params(labelsize=fontsize)
     cbar.ax.yaxis.labelpad = 5
@@ -617,7 +620,7 @@ def plot_mesh_vec_data_paper_temp(vectors_list,plot_name:str):
     im = axs[1, 1].imshow(data.reshape(N, N), cmap='coolwarm', aspect='equal')
     axs[1, 1].set_xticks([])
     axs[1, 1].set_yticks([])
-    axs[1, 1].set_title('$T$, FEM', fontsize=fontsize)
+    axs[1, 1].set_title(title_list[2], fontsize=fontsize)
     cbar = fig.colorbar(im, ax=axs[1, 1], pad=0.02, shrink=0.7)
     cbar.ax.tick_params(labelsize=fontsize)
     cbar.ax.yaxis.labelpad = 5
@@ -638,8 +641,8 @@ def plot_mesh_vec_data_paper_temp(vectors_list,plot_name:str):
     y_idx = int(N * 0.5)
     U1 = vectors_list[1].reshape(N, N)
     U2 = vectors_list[2].reshape(N, N)
-    axs[1, 3].plot(np.linspace(0, 1, N), U1[y_idx, :], label='U FOL', color='blue')
-    axs[1, 3].plot(np.linspace(0, 1, N), U2[y_idx, :], label='U FEM', color='red')
+    axs[1, 3].plot(np.linspace(0, 1, N), U1[y_idx, :], label='T FOL', color='blue')
+    axs[1, 3].plot(np.linspace(0, 1, N), U2[y_idx, :], label='T FEM', color='red')
     axs[1, 3].set_xlim([0, 1])
     axs[1, 3].set_ylim([min(U1[y_idx, :].min(), U2[y_idx, :].min()), max(U1[y_idx, :].max(), U2[y_idx, :].max())])
     axs[1, 3].set_aspect(aspect='auto')

@@ -21,8 +21,8 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 
     # problem setup
     model_settings = {"L":1,
-                    "N":21,
-                    "T_left":1,"T_bottom":1,"T_right":1.0,"T_top":1.0}
+                    "N":51,
+                    "T_left":1.0,"T_bottom":1.0,"T_right":1.0,"T_top":1.0}
 
     # model_settings = {"L":1,
     #                "N":21,
@@ -37,7 +37,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     thermal_loss_2d = ThermalLoss2D("thermal_loss_2d",fe_model,{"num_gp":2})
 
     # fourier control
-    fourier_control_settings = {"x_freqs":np.array([2,4,6]),"y_freqs":np.array([2,4,6]),"z_freqs":np.array([0]),
+    fourier_control_settings = {"x_freqs":np.array([1,2,3]),"y_freqs":np.array([1,2,3]),"z_freqs":np.array([0]),
                                 "beta":10,"min":1e-1,"max":1}
     fourier_control = FourierControl("fourier_control",fourier_control_settings,fe_model)
 
@@ -65,10 +65,14 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     # specify id of the K of interest
     eval_id = 1
     eval_id2 = 289
-    eval_id3 = 290
-    eval_id4 = 1689
-    eval_id5 = 1367
-    train_id = 400
+    eval_id3 = 990
+    eval_id4 = 689
+    eval_id5 = 367
+    eval_id6 = 1989
+    eval_id7 = 1367
+    eval_id8 = 1641
+    eval_id9 = 1893
+    train_id = 1000
 
     # now we need to create, initialize and train fol
     fol = FiniteElementOperatorLearning("first_fol",fourier_control,[thermal_loss_2d],[100,100],
@@ -91,14 +95,10 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
         print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
 
         relative_error = abs(FOL_T.reshape(-1,1)- FE_T.reshape(-1,1))
-        plot_mesh_vec_data_paper_temp([K_matrix[eval_id,:], FOL_T, FE_T],f'sample_{eval_id}')
+        plot_mesh_vec_data_paper_temp([K_matrix[eval_id,:], FOL_T, FE_T],['Heat Source', '$T$, FOL', '$T$, FEM'],f'sample_{eval_id}')
         
-        plot_mesh_vec_data(model_settings["L"], [K_matrix[eval_id,:],FOL_T,FE_T,relative_error], 
-                        subplot_titles= ['Heterogeneity', 'FOL_T', 'FE_T', "absolute_error"], fig_title=None, cmap='viridis',
-                            block_bool=True, colour_bar=True, colour_bar_name=None,
-                            X_axis_name=None, Y_axis_name=None, show=False, file_name=os.path.join(case_dir,'plot_results.png'))
-
-        eval_list = [eval_id2,eval_id3,eval_id4,eval_id5]
+        eval_list = [eval_id2,eval_id3,eval_id4,eval_id5,eval_id6,eval_id7,eval_id8,eval_id9]
+        FOL_T = np.zeros((K_matrix[eval_id,:].reshape(-1,1).T).shape)
         for i,eval_id in enumerate(eval_list):
             FOL_T = np.array(fol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T))
             # FOL_T = np.array(fol.Predict(coeffs_matrix[eval_id,:]))
@@ -107,14 +107,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
             start_time = time.process_time()
             FE_T = np.array(first_fe_solver.SingleSolve(K_matrix[eval_id],np.zeros(fe_model.GetNumberOfNodes())))  
             print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
-            plot_mesh_vec_data_paper_temp([K_matrix[eval_id,:], FOL_T, FE_T],f'sample_{eval_id}')
-
-            relative_error = abs(FOL_T.reshape(-1,1)- FE_T.reshape(-1,1))
-            plot_mesh_vec_data(model_settings["L"], [K_matrix[eval_id,:],FOL_T,FE_T,relative_error], 
-                        subplot_titles= ['Heterogeneity', 'FOL_T', 'FE_T', "absolute_error"], fig_title=None, cmap='viridis',
-                            block_bool=True, colour_bar=True, colour_bar_name=None,
-                            X_axis_name=None, Y_axis_name=None, show=False, file_name=os.path.join(case_dir,'plot_results.png'))
-
+            plot_mesh_vec_data_paper_temp([K_matrix[eval_id,:], FOL_T, FE_T],['Heat Source', '$T$, FOL', '$T$, FEM'],f'sample_{eval_id}')
     
     if clean_dir:
         shutil.rmtree(case_dir)
