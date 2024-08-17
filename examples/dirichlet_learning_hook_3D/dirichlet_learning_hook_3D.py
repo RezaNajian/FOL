@@ -18,27 +18,27 @@ sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 point_bc_settings = {"Ux":{"support_horizontal_1":0.0,"tip_1":-1.0},
                      "Uy":{"support_horizontal_1":0.0},
-                     "Uz":{"support_horizontal_1":0.0,"tip_1":-1.0,"main_load_1":-1.0}}
+                     "Uz":{"support_horizontal_1":0.0,"tip_1":-1.0}}
 mdpa_io = MdpaIO("mdpa_io","hook.mdpa",bc_settings=point_bc_settings,scale_factor=1.0)
 model_info = mdpa_io.Import()
 
 # creation of fe model and loss function
 fe_model = FiniteElementModel("FE_model",model_info,mdpa_io)
 
-dirichlet_bc_settings = {"Ux":{"support_horizontal_1":0.0,"tip_1":-1.0},
-                         "Uy":{"support_horizontal_1":0.0},
-                         "Uz":{"support_horizontal_1":0.0,"tip_1":-1.0}}
-
 # create loss
-mechanical_loss_3d = MechanicalLoss3DTetra("mechanical_loss_3d",fe_model,{"young_modulus":1,"poisson_ratio":0.3},dirichlet_bc_settings)
+mechanical_loss_3d = MechanicalLoss3DTetra("mechanical_loss_3d",fe_model,{"young_modulus":1,"poisson_ratio":0.3},point_bc_settings)
 
+# # fourier control
+# fourier_control_settings = {"x_freqs":np.array([2,4,6]),"y_freqs":np.array([2,4,6]),"z_freqs":np.array([2,4,6]),
+#                             "beta":20,"min":1e-1,"max":1}
+# fourier_control = FourierControl("fourier_control",fourier_control_settings,fe_model)
 
-# fourier control
-fourier_control_settings = {"x_freqs":np.array([2,4,6]),"y_freqs":np.array([2,4,6]),"z_freqs":np.array([2,4,6]),
-                            "beta":20,"min":1e-1,"max":1}
-fourier_control = FourierControl("fourier_control",fourier_control_settings,fe_model)
+displ_control_settings = {"Ux":["tip_1"],"Uz":["tip_1"]}
+displ_control = DirichletConditionControl("displ_control",displ_control_settings,point_bc_settings,fe_model)
 
+coeffs_matrix,K_matrix = create_normal_dist_bc_samples(displ_control,20,center=0.1,standard_dev=0.5)
 
+exit()
 # create some random coefficients & K for training
 create_random_coefficients = False
 if create_random_coefficients:
