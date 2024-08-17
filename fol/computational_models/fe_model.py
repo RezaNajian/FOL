@@ -23,6 +23,9 @@ class FiniteElementModel(Model):
         self.total_number_elements = self.elements_dict["elements_ids"].shape[-1]
         self.dofs_dict = model_info["dofs_dict"]  
 
+        print(self.dofs_dict)
+        ll
+
     def Initialize(self) -> None:
         pass
 

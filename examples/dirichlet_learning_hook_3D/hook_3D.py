@@ -1,0 +1,59 @@
+
+import numpy as np
+from fol.computational_models.fe_model import FiniteElementModel
+from fol.loss_functions.mechanical_3D_fe_tetra import MechanicalLoss3DTetra
+from fol.IO.mdpa_io import MdpaIO
+from fol.controls.fourier_control import FourierControl
+from fol.deep_neural_networks.fe_operator_learning import FiniteElementOperatorLearning
+from fol.tools.usefull_functions import *
+from fol.tools.logging_functions import *
+import pickle
+
+# directory & save handling
+working_directory_name = "results"
+case_dir = os.path.join('.', working_directory_name)
+# create_clean_directory(working_directory_name)
+sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
+
+point_bc_settings = {"Ux":{"support_horizontal_1":0.0,"tip_1":-1.0},
+                     "Uy":{"support_horizontal_1":0.0},
+                     "Uz":{"support_horizontal_1":0.0,"tip_1":-1.0}}
+mdpa_io = MdpaIO("mdpa_io","hook.mdpa",bc_settings=point_bc_settings,scale_factor=1.0)
+model_info = mdpa_io.Import()
+
+# creation of fe model and loss function
+fe_model = FiniteElementModel("FE_model",model_info)
+mechanical_loss_3d = MechanicalLoss3DTetra("mechanical_loss_3d",fe_model,{"young_modulus":1,"poisson_ratio":0.3})
+
+# fourier control
+fourier_control_settings = {"x_freqs":np.array([2,4,6]),"y_freqs":np.array([2,4,6]),"z_freqs":np.array([2,4,6]),
+                            "beta":20,"min":1e-1,"max":1}
+fourier_control = FourierControl("fourier_control",fourier_control_settings,fe_model)
+
+# create some random coefficients & K for training
+
+with open(f'fourier_control_dict.pkl', 'rb') as f:
+    loaded_dict = pickle.load(f)
+
+coeffs_matrix = loaded_dict["coeffs_matrix"]
+
+K_matrix = fourier_control.ComputeBatchControlledVariables(coeffs_matrix)
+
+
+eval_id = -1
+mdpa_io['K'] = np.array(K_matrix[eval_id,:])
+
+# now we need to create, initialize and train fol
+fol = FiniteElementOperatorLearning("first_fol",fourier_control,[mechanical_loss_3d],[1],
+                                    "tanh",load_NN_params=False,working_directory=working_directory_name)
+fol.Initialize()
+
+fol_num_epochs = 2000
+fol.Train(loss_functions_weights=[1],X_train=coeffs_matrix[eval_id].reshape(-1,1).T,batch_size=1,num_epochs=fol_num_epochs,
+            learning_rate=0.0005,optimizer="adam",convergence_criterion="total_loss",
+            relative_error=1e-10,NN_params_save_file_name="NN_params_"+working_directory_name)
+
+FOL_UVW = np.array(fol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T))
+mdpa_io['U_FOL'] = FOL_UVW.reshape((fe_model.GetNumberOfNodes(), 3))
+
+mdpa_io.Export(export_dir=case_dir)
