@@ -46,8 +46,8 @@ class FiniteElementOperatorLearning(DeepNetwork):
         for n_in, n_out in zip(layer_sizes[:-1], layer_sizes[1:]):
             key_w, rng_key = random.split(rng_key)
             limit = jnp.sqrt(6 / (n_in + n_out))
-            # weights = random.uniform(key_w, (n_in, n_out), minval=-limit, maxval=limit)
-            weights = jnp.zeros((n_in, n_out))
+            weights = random.uniform(key_w, (n_in, n_out), minval=-limit, maxval=limit)
+            # weights = jnp.zeros((n_in, n_out))
             biases = jnp.zeros(n_out)
             self.NN_params.append((weights, biases))
         super().InitializeParameters()
@@ -149,8 +149,9 @@ class FiniteElementOperatorLearning(DeepNetwork):
     def Predict(self,batch_X):
         def ForwardPassWithBC(x_input,NN_params):
             y_output = self.ForwardPass(x_input,NN_params)
+            control_output = self.control.ComputeControlledVariables(x_input)
             for loss_function in self.loss_functions:
-                y_output_full = loss_function.ExtendUnknowDOFsWithBC(y_output)
+                y_output_full = loss_function.GetFullDofVector(control_output,y_output)
             return y_output_full
         return jnp.squeeze(vmap(ForwardPassWithBC, (0,None))(batch_X,self.NN_params))
 

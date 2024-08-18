@@ -57,13 +57,21 @@ class FiniteElementModel(Model):
     def GetDofsDict(self, dofs_list:list, dirichlet_bc_dict:dict):
         number_dofs_per_node = len(dofs_list)
         dirichlet_indices = []
-        dirichlet_values = []        
+        dirichlet_values = [] 
+        dirichlet_dofs_boundary_dict = {}       
         point_sets = self.model_io.GetPointSets()
         for dof_index,dof in enumerate(dofs_list):
+            dirichlet_dofs_boundary_dict[dof] = {}
             for boundary_name,boundary_value in dirichlet_bc_dict[dof].items():
                 boundary_node_ids = jnp.array(point_sets[boundary_name])
                 dirichlet_bc_indices = number_dofs_per_node*boundary_node_ids + dof_index
+
+                boundary_start_index = len(dirichlet_indices)
                 dirichlet_indices.extend(dirichlet_bc_indices.tolist())
+                boundary_end_index = len(dirichlet_indices)
+
+                dirichlet_dofs_boundary_dict[dof][boundary_name] = jnp.arange(boundary_start_index,boundary_end_index)
+
                 dirichlet_bc_values = boundary_value * jnp.ones(dirichlet_bc_indices.size)
                 dirichlet_values.extend(dirichlet_bc_values.tolist())
         
@@ -73,7 +81,8 @@ class FiniteElementModel(Model):
         non_dirichlet_indices = jnp.setdiff1d(all_indices, dirichlet_indices)
         return  {"dirichlet_indices":dirichlet_indices,
                  "dirichlet_values":dirichlet_values,
-                 "non_dirichlet_indices":non_dirichlet_indices}
+                 "non_dirichlet_indices":non_dirichlet_indices,
+                 "dirichlet_dofs_boundary_dict":dirichlet_dofs_boundary_dict}
     
     def Finalize(self) -> None:
         pass

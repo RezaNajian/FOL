@@ -131,9 +131,11 @@ class MechanicalLoss3DTetra(FiniteElementLoss):
                                                                      jnp.arange(self.number_dofs_per_node))].reshape(-1,1))
 
     @partial(jit, static_argnums=(0,))
-    def ComputeSingleLoss(self,full_control_params,unknown_dofs):
-        elems_energies = self.ComputeElementsEnergies(full_control_params.reshape(-1,1),
-                                                      self.ExtendUnknowDOFsWithBC(unknown_dofs))
+    def ComputeSingleLoss(self,known_dofs,unknown_dofs):
+        full_UVW = self.GetFullDofVector(known_dofs,unknown_dofs)
+        psudo_k = jnp.ones(full_UVW.shape)
+        elems_energies = self.ComputeElementsEnergies(psudo_k.reshape(-1,1),
+                                                      full_UVW)
         # some extra calculation for reporting and not traced
         avg_elem_energy = jax.lax.stop_gradient(jnp.mean(elems_energies))
         max_elem_energy = jax.lax.stop_gradient(jnp.max(elems_energies))

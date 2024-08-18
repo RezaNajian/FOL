@@ -73,6 +73,9 @@ class FiniteElementLoss(Loss):
             self.g_points = jnp.array([[xi,eta,zeta] for xi in g_points for eta in g_points for zeta in g_points]).flatten()
             self.g_weights = jnp.array([[w_i,w_j,w_k] for w_i in g_weights for w_j in g_weights for w_k in g_weights]).flatten()
 
+    def GetLossDofsDict(self) -> dict:
+        return self.dof_dict
+
     def Initialize(self) -> None:
         pass
 
@@ -160,6 +163,12 @@ class FiniteElementLoss(Loss):
     
     @partial(jit, static_argnums=(0,))
     def ExtendUnknowDOFsWithBC(self,unknown_dofs):
+        self.solution_vector = self.solution_vector.at[self.non_dirichlet_indices].set(unknown_dofs)
+        return self.solution_vector
+    
+    @partial(jit, static_argnums=(0,))
+    def GetFullDofVector(self,known_dofs,unknown_dofs):
+        self.solution_vector = self.solution_vector.at[self.dirichlet_indices].set(known_dofs)
         self.solution_vector = self.solution_vector.at[self.non_dirichlet_indices].set(unknown_dofs)
         return self.solution_vector
     
