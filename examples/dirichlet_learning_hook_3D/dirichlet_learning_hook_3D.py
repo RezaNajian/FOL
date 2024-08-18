@@ -36,7 +36,7 @@ if create_random_coefficients:
     number_of_random_samples = 20
     bc_matrix,bc_nodal_value_matrix = create_normal_dist_bc_samples(displ_control,
                                                                     numberof_sample=number_of_random_samples,
-                                                                    center=0.0,standard_dev=1.0)
+                                                                    center=-0.5,standard_dev=0.25)
     export_dict = {}
     export_dict["bc_matrix"] = bc_matrix
     export_dict["point_bc_settings"] = point_bc_settings
@@ -51,7 +51,6 @@ else:
 
 bc_nodal_value_matrix = displ_control.ComputeBatchControlledVariables(bc_matrix)
 
-
 # export generated bcs
 export_bcs = False
 if export_bcs:
@@ -64,22 +63,42 @@ if export_bcs:
     mdpa_io.Export(export_dir=case_dir)
 
 # now we need to create, initialize and train fol
-fol = FiniteElementOperatorLearning("first_fol",displ_control,[mechanical_loss_3d],[1],
-                                    "tanh",load_NN_params=False,working_directory=working_directory_name)
+fol = FiniteElementOperatorLearning("first_fol",displ_control,[mechanical_loss_3d],[10,10],
+                                    "swish",load_NN_params=False,working_directory=working_directory_name)
+# now create train and test samples
+num_train_samples = int(0.8 * bc_matrix.shape[0])
+bc_train_mat = bc_matrix[0:num_train_samples]
+bc_train_nodal_value_matrix = bc_nodal_value_matrix[0:num_train_samples]
+
+bc_test_mat = bc_matrix[num_train_samples:]
+bc_test_nodal_value_matrix = bc_nodal_value_matrix[num_train_samples:]
+
 fol.Initialize()
+fol_num_epochs = 2000
+fol_batch_size = 1
+fol_learning_rate = 0.0005
+fol.Train(loss_functions_weights=[1],X_train=bc_train_mat,batch_size=fol_batch_size,
+          num_epochs=fol_num_epochs,learning_rate=fol_learning_rate,optimizer="adam",
+          convergence_criterion="total_loss",relative_error=1e-10,
+          NN_params_save_file_name="NN_params_"+working_directory_name)
 
-fol_num_epochs = 20
-fol.Train(loss_functions_weights=[1],X_train=bc_matrix,batch_size=1,num_epochs=fol_num_epochs,
-            learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",
-            relative_error=1e-10,NN_params_save_file_name="NN_params_"+working_directory_name)
+UVW_train = fol.Predict(bc_train_mat)
+UVW_test = fol.Predict(bc_test_mat)
 
-FOL_UVW = fol.Predict(bc_matrix)
-eval_ids = [1,5,10,15]
-for eval_id in eval_ids:
+test_eval_ids = [0,10,15]
+for eval_id in test_eval_ids:
     num_unknowns = mechanical_loss_3d.GetNumberOfUnknowns()
     unknown_dofs = jnp.zeros(num_unknowns)
-    full_displ_bc_vec = mechanical_loss_3d.GetFullDofVector(bc_nodal_value_matrix[eval_id,:],unknown_dofs)
-    mdpa_io[f'bc_{eval_id}'] = np.array(full_displ_bc_vec).reshape((fe_model.GetNumberOfNodes(), 3))
-    mdpa_io[f'U_FOL_{eval_id}'] = np.array(FOL_UVW[eval_id]).reshape((fe_model.GetNumberOfNodes(), 3))
+    full_displ_bc_vec = mechanical_loss_3d.GetFullDofVector(bc_test_nodal_value_matrix[eval_id,:],unknown_dofs)
+    mdpa_io[f'test_bc_{eval_id}'] = np.array(full_displ_bc_vec).reshape((fe_model.GetNumberOfNodes(), 3))
+    mdpa_io[f'test_U_FOL_{eval_id}'] = np.array(UVW_test[eval_id]).reshape((fe_model.GetNumberOfNodes(), 3))
+
+train_eval_ids = [0,1,2]
+for eval_id in train_eval_ids:
+    num_unknowns = mechanical_loss_3d.GetNumberOfUnknowns()
+    unknown_dofs = jnp.zeros(num_unknowns)
+    full_displ_bc_vec = mechanical_loss_3d.GetFullDofVector(bc_train_nodal_value_matrix[eval_id,:],unknown_dofs)
+    mdpa_io[f'train_bc_{eval_id}'] = np.array(full_displ_bc_vec).reshape((fe_model.GetNumberOfNodes(), 3))
+    mdpa_io[f'train_U_FOL_{eval_id}'] = np.array(UVW_train[eval_id]).reshape((fe_model.GetNumberOfNodes(), 3))
 
 mdpa_io.Export(export_dir=case_dir)
