@@ -46,8 +46,8 @@ class FiniteElementOperatorLearning(DeepNetwork):
         for n_in, n_out in zip(layer_sizes[:-1], layer_sizes[1:]):
             key_w, rng_key = random.split(rng_key)
             limit = jnp.sqrt(6 / (n_in + n_out))
-            # weights = random.uniform(key_w, (n_in, n_out), minval=-limit, maxval=limit)
-            weights = jnp.zeros((n_in, n_out))
+            weights = random.uniform(key_w, (n_in, n_out), minval=-limit, maxval=limit)
+            # weights = jnp.zeros((n_in, n_out))
             biases = jnp.zeros(n_out)
             self.NN_params.append((weights, biases))
         super().InitializeParameters()
@@ -109,10 +109,10 @@ class FiniteElementOperatorLearning(DeepNetwork):
             loss_weight = self.loss_functions_weights[loss_index]
             total_loss += loss_weight * batch_loss
             flat_loss_grads = self.flatten_NN_data(batch_loss_grads)
-            flat_loss_grads /= jnp.linalg.norm(flat_loss_grads,ord=2)
+            # flat_loss_grads /= jnp.linalg.norm(flat_loss_grads,ord=2)
             total_loss_grads = jnp.add(total_loss_grads,loss_weight * flat_loss_grads)
         
-        total_loss_grads /= jnp.linalg.norm(total_loss_grads,ord=2)
+        # total_loss_grads /= jnp.linalg.norm(total_loss_grads,ord=2)
         final_grads = self.unflatten_data_into_NN(total_loss_grads)
 
         return (total_loss, {**losses_dict,"total_loss":total_loss}), final_grads

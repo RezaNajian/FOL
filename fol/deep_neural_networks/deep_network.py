@@ -14,6 +14,7 @@ import jaxopt
 from tqdm import trange
 from jax.flatten_util import ravel_pytree
 import os
+import optax
 
 class DeepNetwork(ABC):
     """Base abstract deep network class.
@@ -62,8 +63,8 @@ class DeepNetwork(ABC):
     @partial(jit, static_argnums=(0,))
     def StepAdam(self,opt_itr,opt_state,x_batch,NN_params):
         (total_loss, batch_dict), final_grads = self.ComputeTotalLossValueAndGrad(NN_params,x_batch)
-        updated_state = self.opt_update(opt_itr, final_grads, opt_state)
-        updated_NN_params = self.get_params(updated_state)
+        updates, updated_state = self.optimizer.update(final_grads, opt_state)
+        updated_NN_params = optax.apply_updates(NN_params, updates)
         return updated_NN_params,updated_state,batch_dict
     
     @partial(jit, static_argnums=(0,))
@@ -136,8 +137,16 @@ class DeepNetwork(ABC):
 
         # here specify the optimizer
         if optimizer =="adam":
-            self.opt_init, self.opt_update, self.get_params = optimizers.adam(learning_rate)
-            self.opt_state = self.opt_init(self.NN_params)
+
+            decay_rate = 0.9
+            decay_steps = 1000
+
+            schedule = optax.exponential_decay(init_value=learning_rate, 
+                                               transition_steps=decay_steps, 
+                                               decay_rate=decay_rate)
+            
+            self.optimizer = optax.adam(learning_rate=schedule)
+            self.opt_state = self.optimizer.init(self.NN_params)
             self.step_function = self.StepAdam
         elif optimizer=="LBFGS":
             self.solver = jaxopt.LBFGS(fun=self.ComputeTotalLossValueAndGrad,value_and_grad=True,has_aux=True,stepsize=-1,

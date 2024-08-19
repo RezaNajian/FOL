@@ -72,7 +72,7 @@ class MechanicalLoss3DTetra(FiniteElementLoss):
             N = N.at[0,0::3].set(Nf)
             N = N.at[0,1::3].set(Nf)
             N = N.at[0,2::3].set(Nf)
-            gp_stiffness = total_weight * detJ * e_at_gauss * (B.T @ (self.D @ B))
+            gp_stiffness = total_weight * detJ * 1.0 * (B.T @ (self.D @ B))
             gp_f = total_weight * detJ * (N.T @ body_force)
             return gp_stiffness,gp_f
         @jit
