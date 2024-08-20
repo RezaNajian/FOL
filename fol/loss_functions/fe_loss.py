@@ -137,11 +137,12 @@ class FiniteElementLoss(Loss):
     # @partial(jit, static_argnums=(0,))
     @print_with_timestamp_and_execution_time
     def ComputeResidualsAndStiffness(self,total_control_vars,total_primal_vars):
+        psudo_k = jnp.ones(int(total_primal_vars.shape[0]/3))
         # parallel calculation of residuals
         elements_residuals, elements_stiffness = jax.vmap(self.ComputeElementResidualsAndStiffnessVmapCompatible,(0,None,None,None,None,None,None)) \
                                                 (self.fe_model.GetElementsIds(),self.fe_model.GetElementsNodes()
                                                 ,self.fe_model.GetNodesX(),self.fe_model.GetNodesY(),self.fe_model.GetNodesZ(),
-                                                total_control_vars,total_primal_vars)
+                                                psudo_k,total_primal_vars)
 
         problem_size = self.number_dofs_per_node*self.fe_model.GetNumberOfNodes()
         residuals = jnp.zeros(problem_size)
@@ -174,28 +175,18 @@ class FiniteElementLoss(Loss):
     
     @partial(jit, static_argnums=(0,))
     def ApplyBCOnR(self,full_residual_vector):
-        for dof_index,dof in enumerate(self.dofs):
-            # set residuals on drichlet dofs to zero
-            dirichlet_indices = self.number_dofs_per_node*self.fe_model.GetDofsDict()[dof]["dirichlet_nodes_ids"] + dof_index
-            full_residual_vector = full_residual_vector.at[dirichlet_indices].set(0.0)
-        return full_residual_vector
+        return full_residual_vector.at[self.dirichlet_indices].set(0.0)
     
     @partial(jit, static_argnums=(0,))
     def ApplyBCOnMatrix(self,full_matrix):
-        for dof_index,dof in enumerate(self.dofs):
-            dirichlet_indices = self.number_dofs_per_node*self.fe_model.GetDofsDict()[dof]["dirichlet_nodes_ids"] + dof_index
-            full_matrix = full_matrix.at[dirichlet_indices,:].set(0)
-            full_matrix = full_matrix.at[dirichlet_indices,dirichlet_indices].set(1)
+        full_matrix = full_matrix.at[self.dirichlet_indices,:].set(0)
+        full_matrix = full_matrix.at[self.dirichlet_indices,self.dirichlet_indices].set(1)
         return full_matrix
 
-    @partial(jit, static_argnums=(0,2,))
-    def ApplyBCOnDOFs(self,full_dof_vector,load_increment=1):
+    @partial(jit, static_argnums=(0))
+    def ApplyBCOnDOFs(self,known_dofs,full_dof_vector,load_increment=1):
         full_dof_vector = full_dof_vector.reshape(-1)
-        for dof_index,dof in enumerate(self.dofs):
-            # set values on drichlet dofs 
-            dirichlet_indices = self.number_dofs_per_node*self.fe_model.GetDofsDict()[dof]["dirichlet_nodes_ids"] + dof_index
-            full_dof_vector = full_dof_vector.at[dirichlet_indices].set(load_increment*self.fe_model.GetDofsDict()[dof]["dirichlet_nodes_dof_value"])
-        return full_dof_vector
+        return full_dof_vector.at[self.dirichlet_indices].set(known_dofs)
             
 
 
