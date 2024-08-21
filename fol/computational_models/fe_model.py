@@ -16,7 +16,7 @@ class FiniteElementModel(Model):
 
     """
     @print_with_timestamp_and_execution_time
-    def __init__(self, model_name: str, model_info: dict, model_io: InputOutput=None) -> None:
+    def __init__(self, model_name: str, model_info: dict, model_io: InputOutput) -> None:
         super().__init__(model_name,model_io)
         self.nodes_dict = model_info["nodes_dict"]
         self.total_number_nodes = self.nodes_dict["nodes_ids"].shape[-1] 

@@ -20,7 +20,7 @@ class FiniteElementLoss(Loss):
     This is the base class for the loss functions require FE formulation.
 
     """
-    def __init__(self, name: str, fe_model: FiniteElementModel, ordered_dofs: list, loss_settings: dict, dirichlet_bc_dict: dict={}):
+    def __init__(self, name: str, fe_model: FiniteElementModel, ordered_dofs: list, loss_settings: dict, dirichlet_bc_dict: dict):
         super().__init__(name)
         self.fe_model = fe_model
         self.dofs = ordered_dofs

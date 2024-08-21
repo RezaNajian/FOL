@@ -34,6 +34,7 @@ class MeshIO(InputOutput):
         self.mesh_io.cell_data_to_sets('cell_tags')
 
         self.dofs_dict = {}
+        self.point_sets = {}
         for dof_name,dof_settings in self.bc_settings.items():
             fol_dof_settings = {"non_dirichlet_nodes_ids":[],
                                 "dirichlet_nodes_ids":[],
@@ -47,6 +48,7 @@ class MeshIO(InputOutput):
                     raise ValueError(f"boundary {boundary_name} does not exist !")
                 else:
                     boundary_node_ids = self.mesh_io.point_sets[f"set-key-{boundary_tag}"]
+                    self.point_sets[boundary_name] = boundary_node_ids
                     boundary_node_values = [boundary_value] * len(boundary_node_ids)
                     fol_dof_settings["dirichlet_nodes_ids"].extend(boundary_node_ids)
                     fol_dof_settings["dirichlet_nodes_dof_value"].extend(boundary_node_values)
