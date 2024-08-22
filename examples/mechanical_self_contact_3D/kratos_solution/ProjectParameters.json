@@ -40,7 +40,7 @@
                 "model_part_name" : "Structure.DISPLACEMENT_Displacement_Auto1",
                 "variable_name"   : "DISPLACEMENT",
                 "constrained"     : [true,true,true],
-                "value"           : [0.0670487,0.0530135,0.0343435],
+                "value"           : [0.05,0.05,0.05],
                 "interval"        : [0.0,"End"]
             }
         }],
