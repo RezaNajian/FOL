@@ -59,7 +59,7 @@ class DeepNetwork(ABC):
             _, unravel_params = ravel_pytree(self.NN_params)
             self.NN_params = unravel_params(jnp.load(os.path.join(self.working_directory, self.NN_params_file_name)))
 
-    # @partial(jit, static_argnums=(0,))
+    @partial(jit, static_argnums=(0,))
     def StepAdam(self,opt_itr,opt_state,x_batch,NN_params):
         (total_loss, batch_dict), final_grads = self.ComputeTotalLossValueAndGrad(NN_params,x_batch)
         updated_state = self.opt_update(opt_itr, final_grads, opt_state)
@@ -140,7 +140,8 @@ class DeepNetwork(ABC):
             self.opt_state = self.opt_init(self.NN_params)
             self.step_function = self.StepAdam
         elif optimizer=="LBFGS":
-            self.solver = jaxopt.LBFGS(fun=self.ComputeTotalLossValueAndGrad,value_and_grad=True,has_aux=True,maxiter=num_epochs,verbose=False)
+            self.solver = jaxopt.LBFGS(fun=self.ComputeTotalLossValueAndGrad,value_and_grad=True,has_aux=True,stepsize=-1,
+                                       linesearch="backtracking",stop_if_linesearch_fails=True,maxiter=num_epochs,verbose=False)
             self.opt_state = self.solver.init_state(init_params=self.NN_params,batch_input=X_train)
             self.step_function = self.StepLBFGS
 

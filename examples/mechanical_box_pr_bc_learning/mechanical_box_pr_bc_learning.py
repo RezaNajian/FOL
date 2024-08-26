@@ -4,6 +4,7 @@ import os
 import numpy as np
 from fol.computational_models.fe_model import FiniteElementModel
 from fol.loss_functions.mechanical_3D_fe_tetra import MechanicalLoss3DTetra
+from fol.loss_functions.mechanical_3D_fe_tetra_sens import MechanicalLoss3DTetraSens
 from fol.solvers.fe_solver import FiniteElementSolver
 from fol.IO.mesh_io import MeshIO
 from fol.controls.dirichlet_condition_control import DirichletConditionControl
@@ -16,12 +17,12 @@ import pickle
 # directory & save handling
 working_directory_name = "box_3D_tetra"
 case_dir = os.path.join('.', working_directory_name)
-create_clean_directory(working_directory_name)
+# create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # import mesh
-point_bc_settings = {"Ux":{"left":0.0},
-                     "Uy":{"left":0.0},
+point_bc_settings = {"Ux":{"left":0.0,"right":0.0},
+                     "Uy":{"left":0.0,"right":0.0},
                      "Uz":{"left":0.0,"right":0.0}}
 
 io = MeshIO("fol_io",'../meshes/',"box_3D_coarse.med",point_bc_settings)
@@ -30,14 +31,16 @@ model_info = io.Import()
 # creation of fe model and loss function
 fe_model = FiniteElementModel("FE_model",model_info,io)
 mechanical_loss_3d = MechanicalLoss3DTetra("mechanical_loss_3d",fe_model,{"young_modulus":1,"poisson_ratio":0.3},point_bc_settings)
+mechanical_loss_3d_sens = MechanicalLoss3DTetraSens("mechanical_loss_3d_sens",fe_model,{"young_modulus":1,"poisson_ratio":0.3},point_bc_settings)
 
-displ_control_settings = {"Ux":[],
-                          "Uy":[],
+
+displ_control_settings = {"Ux":["right"],
+                          "Uy":["right"],
                           "Uz":["right"]}
 displ_control = DirichletConditionControl("displ_control",displ_control_settings,mechanical_loss_3d)
 
 # create some random bcs 
-create_random_coefficients = False
+create_random_coefficients = True
 if create_random_coefficients:
     number_of_random_samples = 20
     bc_matrix,bc_nodal_value_matrix = create_normal_dist_bc_samples(displ_control,
@@ -56,7 +59,7 @@ else:
     bc_matrix = loaded_control_dict["bc_matrix"]
 
 # add intended BC to the end of samples
-wanted_bc = np.array([-0.0123])
+wanted_bc = np.array([-0.0123,-0.043434,-0.678789])
 bc_matrix = np.vstack((bc_matrix,wanted_bc))
 bc_nodal_value_matrix = displ_control.ComputeBatchControlledVariables(bc_matrix)
 
@@ -70,10 +73,6 @@ if export_bcs:
         io.mesh_io.point_data[f'bc_{i}'] = np.array(full_displ_vec).reshape((fe_model.GetNumberOfNodes(), 3))
         
     io.mesh_io.write(os.path.join(case_dir, "bcs.vtu"))
-
-# now we need to create, initialize and train fol
-fol = FiniteElementOperatorLearning("first_fol",displ_control,[mechanical_loss_3d],[10,10],
-                                    "swish",load_NN_params=False,working_directory=working_directory_name)
 
 # cretae FE
 fe_solver = FiniteElementSolver("fe_solver",mechanical_loss_3d)
@@ -92,14 +91,21 @@ else:
     bc_train_mat = bc_matrix[on_the_fly_id].reshape(-1,1).T
     bc_train_nodal_value_matrix = bc_nodal_value_matrix[on_the_fly_id]
 
+# now we need to create, initialize and train fol
+
+fol = FiniteElementOperatorLearning("first_fol",displ_control,[mechanical_loss_3d,mechanical_loss_3d_sens],[],
+                                    "swish",load_NN_params=True,working_directory=working_directory_name,
+                                    NN_params_file_name="NN_params_box_3D_tetra.npy")
+
 fol.Initialize()
-fol_num_epochs = 1000
+fol_num_epochs = 2000
 fol_batch_size = 1
-fol_learning_rate = 0.0001
-fol.Train(loss_functions_weights=[1],X_train=bc_train_mat,batch_size=fol_batch_size,
+fol_learning_rate = 0.001
+fol.Train(loss_functions_weights=[1,1],X_train=bc_train_mat,batch_size=fol_batch_size,
         num_epochs=fol_num_epochs,learning_rate=fol_learning_rate,optimizer="adam",
-        convergence_criterion="total_loss",relative_error=1e-20,
+        convergence_criterion="total_loss",relative_error=1e-100,
         NN_params_save_file_name="NN_params_"+working_directory_name)
+
 
 if prametric_learning:
     UVW_train = fol.Predict(bc_train_mat)

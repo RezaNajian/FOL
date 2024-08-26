@@ -2,6 +2,8 @@
 import numpy as np
 from fol.computational_models.fe_model import FiniteElementModel
 from fol.loss_functions.mechanical_3D_fe_tetra import MechanicalLoss3DTetra
+from fol.loss_functions.mechanical_3D_fe_tetra_sens import MechanicalLoss3DTetraSens
+from fol.loss_functions.mechanical_3D_fe_tetra_res import MechanicalLoss3DTetraRes
 from fol.IO.mdpa_io import MdpaIO
 from fol.controls.dirichlet_condition_control import DirichletConditionControl
 from fol.deep_neural_networks.fe_operator_learning import FiniteElementOperatorLearning
@@ -10,15 +12,16 @@ from fol.solvers.fe_solver import FiniteElementSolver
 from fol.tools.logging_functions import *
 import pickle
 
+
 # directory & save handling
 working_directory_name = "fol_results"
 case_dir = os.path.join('.', working_directory_name)
-create_clean_directory(working_directory_name)
+# create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
-point_bc_settings = {"Ux":{"DISPLACEMENT_Displacement_Auto1":0.0,"DISPLACEMENT_Displacement_Auto2":0.0},
-                     "Uy":{"DISPLACEMENT_Displacement_Auto1":0.0,"DISPLACEMENT_Displacement_Auto2":0.0},
-                     "Uz":{"DISPLACEMENT_Displacement_Auto1":0.0,"DISPLACEMENT_Displacement_Auto2":0.0}}
+point_bc_settings = {"Ux":{"DISPLACEMENT_Displacement_Auto1":0.05,"DISPLACEMENT_Displacement_Auto2":0.0},
+                     "Uy":{"DISPLACEMENT_Displacement_Auto1":0.05,"DISPLACEMENT_Displacement_Auto2":0.0},
+                     "Uz":{"DISPLACEMENT_Displacement_Auto1":0.05,"DISPLACEMENT_Displacement_Auto2":0.0}}
 mdpa_io = MdpaIO("mdpa_io","self_contact.mdpa",bc_settings=point_bc_settings,scale_factor=1.0)
 model_info = mdpa_io.Import()
 
@@ -26,7 +29,9 @@ model_info = mdpa_io.Import()
 fe_model = FiniteElementModel("FE_model",model_info,mdpa_io)
 
 # create loss
-mechanical_loss_3d = MechanicalLoss3DTetra("mechanical_loss_3d",fe_model,{"young_modulus":1,"poisson_ratio":0.3,"num_gp":1},point_bc_settings)
+mechanical_loss_3d = MechanicalLoss3DTetra("mechanical_loss_3d",fe_model,{"young_modulus":10000,"poisson_ratio":0.3,"num_gp":1},point_bc_settings)
+mechanical_loss_3d_sens = MechanicalLoss3DTetraSens("mechanical_loss_3d_sens",fe_model,{"young_modulus":1,"poisson_ratio":0.3},point_bc_settings)
+mechanical_loss_3d_res = MechanicalLoss3DTetraRes("mechanical_loss_3d_res",fe_model,{"young_modulus":1,"poisson_ratio":0.3},point_bc_settings)
 
 displ_control_settings = {"Ux":["DISPLACEMENT_Displacement_Auto1"],
                           "Uy":["DISPLACEMENT_Displacement_Auto1"],
@@ -68,13 +73,6 @@ if export_bcs:
         
     mdpa_io.Export(export_dir=case_dir)
 
-# now we need to create, initialize and train fol
-fol = FiniteElementOperatorLearning("first_fol",displ_control,[mechanical_loss_3d],[10,10],
-                                    "swish",load_NN_params=False,working_directory=working_directory_name)
-
-# cretae FE
-fe_solver = FiniteElementSolver("fe_solver",mechanical_loss_3d)
-
 # here we specify whther to do pr_le or on the fly solve
 prametric_learning = False
 if prametric_learning:
@@ -89,13 +87,17 @@ else:
     bc_train_mat = bc_matrix[on_the_fly_id].reshape(-1,1).T
     bc_train_nodal_value_matrix = bc_nodal_value_matrix[on_the_fly_id]
 
+# now we need to create, initialize and train fol
+fol = FiniteElementOperatorLearning("first_fol",displ_control,[mechanical_loss_3d,mechanical_loss_3d_sens],
+                                    [10,10],"tanh",load_NN_params=True,working_directory=working_directory_name,
+                                    NN_params_file_name="NN_params_fol_results.npy")
 fol.Initialize()
-fol_num_epochs = 5000
+fol_num_epochs = 1000
 fol_batch_size = 1
-fol_learning_rate = 0.0001
-fol.Train(loss_functions_weights=[1],X_train=bc_train_mat,batch_size=fol_batch_size,
-        num_epochs=fol_num_epochs,learning_rate=fol_learning_rate,optimizer="adam",
-        convergence_criterion="total_loss",relative_error=1e-20,
+fol_learning_rate = 0.00001
+fol.Train(loss_functions_weights=[1,1],X_train=bc_train_mat,batch_size=fol_batch_size,
+        num_epochs=fol_num_epochs,learning_rate=fol_learning_rate,optimizer="LBFGS",
+        convergence_criterion="total_loss",relative_error=1e-20,absolute_error=1e-20,
         NN_params_save_file_name="NN_params_"+working_directory_name)
 
 if prametric_learning:
@@ -133,8 +135,24 @@ else:
     full_displ_bc_vec = mechanical_loss_3d.GetFullDofVector(bc_train_nodal_value_matrix,unknown_dofs)
     mdpa_io['bc'] = np.array(full_displ_bc_vec).reshape((fe_model.GetNumberOfNodes(), 3))
     mdpa_io["U_FOL"] = np.array(FOL_UVW).reshape((fe_model.GetNumberOfNodes(), 3))
-    FE_UVW = np.array(fe_solver.SingleSolve(bc_train_nodal_value_matrix,jnp.zeros(3*fe_model.GetNumberOfNodes())))  
-    mdpa_io["U_FE"] = np.array(FE_UVW).reshape((fe_model.GetNumberOfNodes(), 3))
+    psudo_k = jnp.ones(int(full_displ_bc_vec.shape[0]/3))
+    fol_elems_energies = mechanical_loss_3d.ComputeElementsEnergies(psudo_k.reshape(-1,1),
+                                                    FOL_UVW)
+    print("fol_total_energy: ",jnp.sum(fol_elems_energies))
+    fol_residuals = mechanical_loss_3d.ComputeResiduals(psudo_k,FOL_UVW)
+    mdpa_io["RES_FOL"] = np.array(fol_residuals).reshape((fe_model.GetNumberOfNodes(), 3))
+
+    import meshio
+    mesh = meshio.read('Structure_0_1.vtk')
+    KR_FEM_SOL = mesh.point_data["DISPLACEMENT"].flatten()
+    mdpa_io["U_KR"] = np.array(KR_FEM_SOL).reshape((fe_model.GetNumberOfNodes(), 3))
+    kr_elems_energies = mechanical_loss_3d.ComputeElementsEnergies(psudo_k.reshape(-1,1),
+                                                    KR_FEM_SOL)
+    print("kr_total_energy: ",jnp.sum(kr_elems_energies))
+    kr_residuals = mechanical_loss_3d.ComputeResiduals(psudo_k,KR_FEM_SOL)
+
+    mdpa_io["RES_KR"] = np.array(kr_residuals).reshape((fe_model.GetNumberOfNodes(), 3))
+
 
 mdpa_io.Export(export_dir=case_dir)
 
