@@ -16,12 +16,12 @@ import pickle
 # directory & save handling
 working_directory_name = "fol_results"
 case_dir = os.path.join('.', working_directory_name)
-# create_clean_directory(working_directory_name)
+create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
-point_bc_settings = {"Ux":{"DISPLACEMENT_Displacement_Auto1":0.05,"DISPLACEMENT_Displacement_Auto2":0.0},
-                     "Uy":{"DISPLACEMENT_Displacement_Auto1":0.05,"DISPLACEMENT_Displacement_Auto2":0.0},
-                     "Uz":{"DISPLACEMENT_Displacement_Auto1":0.05,"DISPLACEMENT_Displacement_Auto2":0.0}}
+point_bc_settings = {"Ux":{"DISPLACEMENT_Displacement_Auto1":0.0,"DISPLACEMENT_Displacement_Auto2":0.0},
+                     "Uy":{"DISPLACEMENT_Displacement_Auto1":0.0,"DISPLACEMENT_Displacement_Auto2":0.0},
+                     "Uz":{"DISPLACEMENT_Displacement_Auto1":0.0,"DISPLACEMENT_Displacement_Auto2":0.0}}
 mdpa_io = MdpaIO("mdpa_io","self_contact.mdpa",bc_settings=point_bc_settings,scale_factor=1.0)
 model_info = mdpa_io.Import()
 
@@ -30,8 +30,7 @@ fe_model = FiniteElementModel("FE_model",model_info,mdpa_io)
 
 # create loss
 mechanical_loss_3d = MechanicalLoss3DTetra("mechanical_loss_3d",fe_model,{"young_modulus":10000,"poisson_ratio":0.3,"num_gp":1},point_bc_settings)
-mechanical_loss_3d_sens = MechanicalLoss3DTetraSens("mechanical_loss_3d_sens",fe_model,{"young_modulus":1,"poisson_ratio":0.3},point_bc_settings)
-mechanical_loss_3d_res = MechanicalLoss3DTetraRes("mechanical_loss_3d_res",fe_model,{"young_modulus":1,"poisson_ratio":0.3},point_bc_settings)
+mechanical_loss_3d_sens = MechanicalLoss3DTetraSens("mechanical_loss_3d_sens",fe_model,{"young_modulus":10000,"poisson_ratio":0.3},point_bc_settings)
 
 displ_control_settings = {"Ux":["DISPLACEMENT_Displacement_Auto1"],
                           "Uy":["DISPLACEMENT_Displacement_Auto1"],
@@ -41,7 +40,7 @@ displ_control = DirichletConditionControl("displ_control",displ_control_settings
 # create some random bcs 
 create_random_coefficients = False
 if create_random_coefficients:
-    number_of_random_samples = 2
+    number_of_random_samples = 20
     bc_matrix,bc_nodal_value_matrix = create_normal_dist_bc_samples(displ_control,
                                                                     numberof_sample=number_of_random_samples,
                                                                     center=0.025,standard_dev=0.025)
@@ -87,18 +86,24 @@ else:
     bc_train_mat = bc_matrix[on_the_fly_id].reshape(-1,1).T
     bc_train_nodal_value_matrix = bc_nodal_value_matrix[on_the_fly_id]
 
-# now we need to create, initialize and train fol
-fol = FiniteElementOperatorLearning("first_fol",displ_control,[mechanical_loss_3d,mechanical_loss_3d_sens],
-                                    [10,10],"tanh",load_NN_params=True,working_directory=working_directory_name,
-                                    NN_params_file_name="NN_params_fol_results.npy")
-fol.Initialize()
-fol_num_epochs = 1000
+learning_rate_list = [0.001,0.0005,0.0001,0.00005,0.00001]
+num_epoch_list = [2000,2000,2000,2000,10000]
 fol_batch_size = 1
-fol_learning_rate = 0.00001
-fol.Train(loss_functions_weights=[1,1],X_train=bc_train_mat,batch_size=fol_batch_size,
-        num_epochs=fol_num_epochs,learning_rate=fol_learning_rate,optimizer="LBFGS",
-        convergence_criterion="total_loss",relative_error=1e-20,absolute_error=1e-20,
-        NN_params_save_file_name="NN_params_"+working_directory_name)
+for i,learning_rate in enumerate(learning_rate_list):
+    if i == 0:
+        load_params = False
+    else:
+        load_params = True
+
+    fol = FiniteElementOperatorLearning("first_fol",displ_control,[mechanical_loss_3d],
+                                        [1],"tanh",load_NN_params=load_params,working_directory=working_directory_name,
+                                        NN_params_file_name="NN_params_self_contact_3D.npy")
+    
+    fol.Initialize()
+    fol.Train(loss_functions_weights=[1],X_train=bc_train_mat,batch_size=fol_batch_size,
+            num_epochs=num_epoch_list[i],learning_rate=learning_rate,optimizer="adam",
+            convergence_criterion="total_loss",relative_error=1e-20,absolute_error=1e-20,
+            NN_params_save_file_name="NN_params_self_contact_3D.npy")
 
 if prametric_learning:
     UVW_train = fol.Predict(bc_train_mat)
