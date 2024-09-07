@@ -7,6 +7,7 @@ import gmsh
 import meshio
 import os
 import shutil
+from fol.controls.dirichlet_condition_control import DirichletConditionControl
 
 def plot_mesh_vec_data(L, vectors_list, subplot_titles=None, fig_title=None, cmap='viridis',
                        block_bool=False, colour_bar=True, colour_bar_name=None,
@@ -447,6 +448,17 @@ def create_random_fourier_samples(fourier_control,numberof_sample):
     # plot_data_input(K_matrix,10,'K distributions')    
 
     return coeffs_matrix,K_matrix
+
+def create_normal_dist_bc_samples(displ_control:DirichletConditionControl,numberof_sample:int,center:float=0.0,standard_dev:float=1.0):
+    num_control_vars = displ_control.GetNumberOfVariables()
+    bc_matrix = np.zeros((0,num_control_vars))
+    for i in range (numberof_sample):
+        control_var_vec = np.random.normal(loc=center,scale=standard_dev,size=num_control_vars)
+        bc_matrix = np.vstack((bc_matrix,control_var_vec))
+
+    bc_nodal_value_matrix = displ_control.ComputeBatchControlledVariables(bc_matrix)
+
+    return bc_matrix,bc_nodal_value_matrix
 
 def create_random_voronoi_samples(voronoi_control,numberof_sample):
     # N = int(voronoi_control.GetNumberOfControlledVariables()**0.5)

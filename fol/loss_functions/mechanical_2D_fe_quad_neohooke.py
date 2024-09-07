@@ -11,7 +11,6 @@ from jax import jit
 from functools import partial
 from fol.tools.fem_utilities import *
 from fol.computational_models.fe_model import FiniteElementModel
-from fol.tools.usefull_functions import TensorToVoigt,FourthTensorToVoigt,Neo_Hooke
 
 class MechanicalLoss2D(FiniteElementLoss):
     """FE-based Mechanical loss

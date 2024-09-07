@@ -4,7 +4,9 @@
  License: FOL/License.txt
 """
 from  .model import Model
+from fol.IO.input_output import InputOutput
 from fol.tools.decoration_functions import *
+import jax.numpy as jnp
 
 class FiniteElementModel(Model):
     """Base abstract model class.
@@ -14,9 +16,8 @@ class FiniteElementModel(Model):
 
     """
     @print_with_timestamp_and_execution_time
-    def __init__(self, model_name: str, model_info) -> None:
-        super().__init__(model_name)
-
+    def __init__(self, model_name: str, model_info: dict, model_io: InputOutput) -> None:
+        super().__init__(model_name,model_io)
         self.nodes_dict = model_info["nodes_dict"]
         self.total_number_nodes = self.nodes_dict["nodes_ids"].shape[-1] 
         self.elements_dict = model_info["elements_dict"]
@@ -53,8 +54,35 @@ class FiniteElementModel(Model):
     def GetNodesZ(self):
         return self.nodes_dict["Z"]
 
-    def GetDofsDict(self):
-        return self.dofs_dict
+    def GetDofsDict(self, dofs_list:list, dirichlet_bc_dict:dict):
+        number_dofs_per_node = len(dofs_list)
+        dirichlet_indices = []
+        dirichlet_values = [] 
+        dirichlet_dofs_boundary_dict = {}       
+        point_sets = self.model_io.GetPointSets()
+        for dof_index,dof in enumerate(dofs_list):
+            dirichlet_dofs_boundary_dict[dof] = {}
+            for boundary_name,boundary_value in dirichlet_bc_dict[dof].items():
+                boundary_node_ids = jnp.array(point_sets[boundary_name])
+                dirichlet_bc_indices = number_dofs_per_node*boundary_node_ids + dof_index
+
+                boundary_start_index = len(dirichlet_indices)
+                dirichlet_indices.extend(dirichlet_bc_indices.tolist())
+                boundary_end_index = len(dirichlet_indices)
+
+                dirichlet_dofs_boundary_dict[dof][boundary_name] = jnp.arange(boundary_start_index,boundary_end_index)
+
+                dirichlet_bc_values = boundary_value * jnp.ones(dirichlet_bc_indices.size)
+                dirichlet_values.extend(dirichlet_bc_values.tolist())
+        
+        dirichlet_indices = jnp.array(dirichlet_indices)
+        dirichlet_values = jnp.array(dirichlet_values)
+        all_indices = jnp.arange(number_dofs_per_node*self.GetNumberOfNodes())
+        non_dirichlet_indices = jnp.setdiff1d(all_indices, dirichlet_indices)
+        return  {"dirichlet_indices":dirichlet_indices,
+                 "dirichlet_values":dirichlet_values,
+                 "non_dirichlet_indices":non_dirichlet_indices,
+                 "dirichlet_dofs_boundary_dict":dirichlet_dofs_boundary_dict}
     
     def Finalize(self) -> None:
         pass

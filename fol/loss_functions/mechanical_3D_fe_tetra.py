@@ -19,8 +19,8 @@ class MechanicalLoss3DTetra(FiniteElementLoss):
 
     """
     @print_with_timestamp_and_execution_time
-    def __init__(self, name: str, fe_model: FiniteElementModel, loss_settings: dict={}):
-        super().__init__(name,fe_model,["Ux","Uy","Uz"],{**loss_settings,"compute_dims":3})
+    def __init__(self, name: str, fe_model: FiniteElementModel, loss_settings: dict, dirichlet_bc_dict: dict):
+        super().__init__(name,fe_model,["Ux","Uy","Uz"],{**loss_settings,"compute_dims":3}, dirichlet_bc_dict)
         self.shape_function = TetrahedralShapeFunction()
 
         # construction of the constitutive matrix
@@ -87,7 +87,7 @@ class MechanicalLoss3DTetra(FiniteElementLoss):
         k_gps,f_gps = jax.vmap(vmap_compatible_compute_at_gauss_point,(0))(jnp.arange(self.num_gp**self.dim))
         Se = jnp.sum(k_gps, axis=0)
         Fe = jnp.sum(f_gps, axis=0)
-        element_residuals = jax.lax.stop_gradient(Se @ uvwe - Fe)
+        element_residuals = (Se @ uvwe - Fe)
         return  ((uvwe.T @ element_residuals)[0,0]), 2 * (Se @ uvwe - Fe), 2 * Se
 
     def ComputeElementEnergy(self,xyze,de,uvwe,body_force=jnp.zeros((3,1))):
@@ -131,12 +131,14 @@ class MechanicalLoss3DTetra(FiniteElementLoss):
                                                                      jnp.arange(self.number_dofs_per_node))].reshape(-1,1))
 
     @partial(jit, static_argnums=(0,))
-    def ComputeSingleLoss(self,full_control_params,unknown_dofs):
-        elems_energies = self.ComputeElementsEnergies(full_control_params.reshape(-1,1),
-                                                      self.ExtendUnknowDOFsWithBC(unknown_dofs))
+    def ComputeSingleLoss(self,known_dofs,unknown_dofs):
+        full_UVW = self.GetFullDofVector(known_dofs,unknown_dofs)
+        psudo_k = jnp.ones(int(full_UVW.shape[0]/3))
+        elems_energies = self.ComputeElementsEnergies(psudo_k.reshape(-1,1),
+                                                      full_UVW)
         # some extra calculation for reporting and not traced
         avg_elem_energy = jax.lax.stop_gradient(jnp.mean(elems_energies))
         max_elem_energy = jax.lax.stop_gradient(jnp.max(elems_energies))
         min_elem_energy = jax.lax.stop_gradient(jnp.min(elems_energies))
-        return jnp.abs(jnp.sum(elems_energies)),(0,max_elem_energy,avg_elem_energy)
+        return jnp.abs(jnp.sum(elems_energies)),(min_elem_energy,max_elem_energy,avg_elem_energy)
 

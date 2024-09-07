@@ -14,9 +14,13 @@ class InputOutput(ABC):
     """
     def __init__(self, io_name: str) -> None:
         self.__name = io_name
+        self.point_sets = {}
 
     def GetName(self) -> str:
         return self.__name
+    
+    def GetPointSets(self) -> dict:
+        return self.point_sets
 
     @abstractmethod
     def Initialize(self) -> None:

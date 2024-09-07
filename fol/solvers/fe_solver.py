@@ -22,7 +22,7 @@ class FiniteElementSolver(ResidualBasedSolver):
     # @partial(jit, static_argnums=(0,))
     @print_with_timestamp_and_execution_time
     def SingleSolve(self,current_control_vars,current_dofs):
-        applied_BC_dofs = self.fe_loss_function.ApplyBCOnDOFs(current_dofs)
+        applied_BC_dofs = self.fe_loss_function.ApplyBCOnDOFs(current_control_vars,current_dofs)
         R,K_mat = self.fe_loss_function.ComputeResidualsAndStiffness(current_control_vars,applied_BC_dofs)
         applied_BC_R = self.fe_loss_function.ApplyBCOnR(R)
         applied_BC_K_mat = self.fe_loss_function.ApplyBCOnMatrix(K_mat)

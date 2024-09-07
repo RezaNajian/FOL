@@ -7,7 +7,7 @@ from .deep_network import DeepNetwork
 import jax
 import jax.numpy as jnp
 from jax.nn import relu,sigmoid,swish,tanh,leaky_relu,elu
-from jax import random,jit,vmap
+from jax import random,jit,grad,vmap,jacfwd
 from functools import partial
 from fol.tools.decoration_functions import *
 
@@ -46,8 +46,8 @@ class FiniteElementOperatorLearning(DeepNetwork):
         for n_in, n_out in zip(layer_sizes[:-1], layer_sizes[1:]):
             key_w, rng_key = random.split(rng_key)
             limit = jnp.sqrt(6 / (n_in + n_out))
-            # weights = random.uniform(key_w, (n_in, n_out), minval=-limit, maxval=limit)
-            weights = jnp.zeros((n_in, n_out))
+            weights = random.uniform(key_w, (n_in, n_out), minval=-limit, maxval=limit)
+            # weights = jnp.zeros((n_in, n_out))
             biases = jnp.zeros(n_out)
             self.NN_params.append((weights, biases))
         super().InitializeParameters()
@@ -88,11 +88,12 @@ class FiniteElementOperatorLearning(DeepNetwork):
             unflat_data.append((new_weights, new_biases))
         return unflat_data
 
-    @partial(jit, static_argnums=(0,))
+    # @partial(jit, static_argnums=(0,))
     def ComputeTotalLossValueAndGrad(self,NN_params,batch_input):
         total_loss = 0.0
         total_loss_grads = jnp.zeros((self.total_number_of_NN_params))
         losses_dict = {}
+
         def ComputeSingleLossValue(x_input,NN_params,loss_index):
             NN_output = self.ForwardPass(x_input,NN_params)
             control_output = self.control.ComputeControlledVariables(x_input)
@@ -103,11 +104,33 @@ class FiniteElementOperatorLearning(DeepNetwork):
             loss_name = self.loss_functions[loss_index].GetName()
             return jnp.mean(batch_losses), ({loss_name+"_min":jnp.min(batch_mins),loss_name+"_max":jnp.max(batch_maxs),loss_name+"_avg":jnp.mean(batch_avgs)})        
 
+        def compute_residuals(x_input,NN_params,loss_index):
+            NN_output = self.ForwardPass(x_input,NN_params)
+            control_output = self.control.ComputeControlledVariables(x_input)
+            residuals = self.loss_functions[loss_index].ComputeSingleLoss(control_output,NN_output)
+            return residuals
+
+        def ComputeSensSingleLossValue(x_input,NN_params,loss_index):
+            DR_DcK = jnp.squeeze(jacfwd(compute_residuals,argnums=0)(x_input,NN_params,loss_index)).flatten()
+            function_to_be_diff = DR_DcK**2
+            function_to_be_diff = jnp.mean(function_to_be_diff)
+            return function_to_be_diff, (0,0,function_to_be_diff)
+
+        def ComputeBatchSensSingleLossValue(batch_input,NN_params,loss_index):
+            batch_losses,(batch_mins,batch_maxs,batch_avgs) = vmap(ComputeSensSingleLossValue, (0,None,None))(batch_input,NN_params,loss_index)
+            loss_name = self.loss_functions[loss_index].GetName()
+            return jnp.mean(batch_losses), ({loss_name+"_min":jnp.min(batch_mins),loss_name+"_max":jnp.max(batch_maxs),loss_name+"_avg":jnp.mean(batch_avgs)}) 
+
         for loss_index,loss_func in enumerate(self.loss_functions):
-            (batch_loss,(batch_dict)),batch_loss_grads = jax.value_and_grad(ComputeBatchSingleLossValue,argnums=1,has_aux=True)(batch_input,NN_params,loss_index)
+
+            if loss_func.GetName() == "mechanical_loss_3d_sens":
+                (batch_loss,(batch_dict)),batch_loss_grads = jax.value_and_grad(ComputeBatchSensSingleLossValue,argnums=1,has_aux=True)(batch_input,NN_params,loss_index)
+            else:
+                (batch_loss,(batch_dict)),batch_loss_grads = jax.value_and_grad(ComputeBatchSingleLossValue,argnums=1,has_aux=True)(batch_input,NN_params,loss_index)
+
             losses_dict.update(batch_dict)
             loss_weight = self.loss_functions_weights[loss_index]
-            total_loss += loss_weight * batch_loss
+            total_loss += batch_loss
             flat_loss_grads = self.flatten_NN_data(batch_loss_grads)
             flat_loss_grads /= jnp.linalg.norm(flat_loss_grads,ord=2)
             total_loss_grads = jnp.add(total_loss_grads,loss_weight * flat_loss_grads)
@@ -149,8 +172,9 @@ class FiniteElementOperatorLearning(DeepNetwork):
     def Predict(self,batch_X):
         def ForwardPassWithBC(x_input,NN_params):
             y_output = self.ForwardPass(x_input,NN_params)
+            control_output = self.control.ComputeControlledVariables(x_input)
             for loss_function in self.loss_functions:
-                y_output_full = loss_function.ExtendUnknowDOFsWithBC(y_output)
+                y_output_full = loss_function.GetFullDofVector(control_output,y_output)
             return y_output_full
         return jnp.squeeze(vmap(ForwardPassWithBC, (0,None))(batch_X,self.NN_params))
 
