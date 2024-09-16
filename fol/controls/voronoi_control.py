@@ -46,43 +46,35 @@ class VoronoiControl(Control):
     
     @partial(jit, static_argnums=(0,))
     def ComputeControlledVariables(self, variable_vector: jnp.array):
-        # Split the input vector into x, y coordinates and k_values
         x_coord = variable_vector[:self.numberof_seeds]
-        y_coord = variable_vector[self.numberof_seeds:2*self.numberof_seeds]
-        k_values = variable_vector[2*self.numberof_seeds:]
-        # Define grid based on the number of controlled variables
-        # N = int(self.num_controlled_vars**0.5)
-        # x = np.linspace(0, 1, N)
-        # y = np.linspace(0, 1, N)
-        # X, Y = np.meshgrid(x, y)
-        X = np.array(self.fe_model.GetNodesX())
-        Y = np.array(self.fe_model.GetNodesY())
-        # Initialize array for controlled variables
+        y_coord = variable_vector[self.numberof_seeds:2 * self.numberof_seeds]
+        k_values = variable_vector[2 * self.numberof_seeds:]
+        X = np.asarray(self.fe_model.GetNodesX())
+        Y = np.asarray(self.fe_model.GetNodesY())
         K = jnp.zeros((self.num_controlled_vars))
-        # Combine seed points and ensure they have correct size
-        seed_points = jnp.vstack((x_coord, y_coord)).T.astype(float)
+        seed_points = jnp.vstack((x_coord, y_coord)).T
+        
         if seed_points.shape[0] < 4:
             raise ValueError("At least 4 seed points are required to create a Voronoi diagram.")
         if x_coord.shape[-1] != self.numberof_seeds or y_coord.shape[-1] != self.numberof_seeds or k_values.shape[-1] != self.numberof_seeds:
             raise ValueError("Number of coordinates should be equal to number of seed points!")
+        
+        # Create the grid points
+        grid_points = jnp.vstack([X.ravel(), Y.ravel()]).T
+        
+        # Calculate Euclidean distance between each grid point and each seed point
+        def euclidean_distance(grid_point, seed_points):
+            return jnp.sqrt(jnp.sum((grid_point - seed_points) ** 2, axis=1))
+        
+        # Iterate over grid points and assign the value from the nearest seed point
+        def assign_value_to_grid(grid_point):
+            distances = euclidean_distance(grid_point, seed_points)
+            nearest_seed_idx = jnp.argmin(distances)
+            return k_values[nearest_seed_idx]
+        
+        K = jnp.array([assign_value_to_grid(grid_point) for grid_point in grid_points])
 
-        # Add a small perturbation to avoid coplanar issues
-        random_seed: int = 42
-        key = PRNGKey(random_seed)
-        perturbation = normal(key, shape=seed_points.shape) * 1e-8
-        seed_points += perturbation
-        # Convert JAX array to NumPy array for KDTree
-        seed_points_np = np.random.normal(scale=1e-8, size=seed_points.shape)
-        # Use KDTree to assign nearest seed points
-        tree = KDTree(seed_points_np)
-        grid_points = np.vstack([X.flatten(), Y.flatten()]).T
-        # Find nearest seed point for each grid point
-        _, regions = tree.query(grid_points)
-        # Assign the feature value based on the nearest seed point
-        for i, region in enumerate(regions):
-            K = K.at[i].set(k_values[region])
         return K
-
 
     @partial(jit, static_argnums=(0,))
     def ComputeJacobian(self,control_vec):

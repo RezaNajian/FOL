@@ -108,4 +108,4 @@ class MechanicalLoss2D(FiniteElementLoss):
         avg_elem_energy = jax.lax.stop_gradient(jnp.mean(elems_energies))
         max_elem_energy = jax.lax.stop_gradient(jnp.max(elems_energies))
         min_elem_energy = jax.lax.stop_gradient(jnp.min(elems_energies))
-        return jnp.sum(elems_energies),(0,max_elem_energy,avg_elem_energy)
+        return jnp.sum(elems_energies)**2,(0,max_elem_energy,avg_elem_energy)

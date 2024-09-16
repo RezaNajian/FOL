@@ -1,21 +1,9 @@
-2024-09-14 10:39:20 - Info : FE_model.__init__ finished in 0.0000 seconds
-2024-09-14 10:39:20 - Info : first_voronoi_control.__init__ finished in 0.0000 seconds
-2024-09-14 10:39:22 - Info : first_voronoi_control.ComputeBatchControlledVariables finished in 2.0430 seconds
-[ 0.54175057  0.36838374  0.6063041   0.45834488  0.45361526  0.44186235
-  0.55794428  0.44368517  0.4484594   0.46079199  0.41827804  0.26536127
-  0.33598198  0.38319384  0.5575038   0.46094483  0.5078005   0.28899498
-  0.48400195  0.45751896  0.39898604  0.47243887  0.49202465  0.45715535
-  0.48346447  0.4384286   0.57852761  0.69444431  0.63731569  0.38404272
- 76.83334112 84.29440669 68.31289783 10.03705477 26.56960122 48.58651517
- 48.77289614 27.06058725 41.69462588  6.23230829 69.77122332 52.1666978
- 68.79013035 16.17683387  7.01944152]
-2024-09-14 10:39:22 - Info : first_fol.__init__ finished in 0.0000 seconds
-2024-09-14 10:39:23 - Info : first_fol.Initialize finished in 0.3923 seconds
-2024-09-14 10:39:53 - Info : first_fol.Train finished in 30.5088 seconds
-2024-09-14 10:39:54 - Info : first_fol.Predict finished in 0.2632 seconds
-2024-09-14 10:39:54 - Info : first_fe_solver.__init__ finished in 0.0000 seconds
-2024-09-14 10:39:57 - Info : mechanical_loss_2d.ComputeResidualsAndStiffness finished in 3.2197 seconds
-2024-09-14 10:39:58 - Info : first_fe_solver.SingleSolve finished in 4.0227 seconds
-
-############### FE solve took: 4.078125 s ###############
-
+2024-09-16 09:27:55 - Info : FE_model.__init__ finished in 0.0000 seconds
+2024-09-16 09:27:55 - Info : first_voronoi_control.__init__ finished in 0.0000 seconds
+2024-09-16 09:29:02 - Info : first_voronoi_control.ComputeBatchControlledVariables finished in 66.2131 seconds
+[4.60492162e-01 7.50057666e-01 6.65820293e-01 2.38037993e-01
+ 3.96986332e-01 1.45654972e-02 3.17005332e-01 5.77184051e-01
+ 5.48982900e-01 3.93792251e-01 2.39150197e+01 5.73275054e+01
+ 5.99440923e+01 7.29066146e+01 6.33418901e+01]
+2024-09-16 09:29:02 - Info : first_fol.__init__ finished in 0.0000 seconds
+2024-09-16 09:29:02 - Info : first_fol.Initialize finished in 0.4286 seconds

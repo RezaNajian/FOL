@@ -20,7 +20,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     
     # problem setup
     model_settings = {"L":1,
-                    "N":10,
+                    "N":20,
                     "Ux_left":0.0,"Ux_right":0.05,
                     "Uy_left":0.0,"Uy_right":0.05}
 
@@ -33,16 +33,14 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 
     # k_rangeof_values in the following could be a certain amount of values from a list instead of a tuple
     # voronoi_control_settings = {"numberof_seeds":5,"k_rangeof_values":list(0.01*np.arange(10,100,10))}
-    voronoi_control_settings = {"numberof_seeds":15,"k_rangeof_values":(1,100)}
+    voronoi_control_settings = {"numberof_seeds":5,"k_rangeof_values":(1,100)}
     voronoi_control = VoronoiControl("first_voronoi_control",voronoi_control_settings,fe_model)
 
     # create some random coefficients & K for training
     create_random_coefficients = False
     if create_random_coefficients:
-        number_of_random_samples = 100
-        mean = 0.5*model_settings["L"]
-        std = 0.2*mean
-        coeffs_matrix,K_matrix = create_random_voronoi_samples(voronoi_control,number_of_random_samples,mean,std)
+        number_of_random_samples = 1000
+        coeffs_matrix,K_matrix = create_random_voronoi_samples(voronoi_control,number_of_random_samples)
         export_dict = {}
         export_dict["coeffs_matrix"] = coeffs_matrix
         with open(f'voronoi_control_dict.pkl', 'wb') as f:
@@ -76,8 +74,8 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 
     start_time = time.process_time()
     fol.Train(loss_functions_weights=[1],X_train=coeffs_matrix,batch_size=1,num_epochs=fol_num_epochs,
-                learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",
-                relative_error=1e-10,NN_params_save_file_name="NN_params_"+working_directory_name)
+                learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",absolute_error=1e-15,
+                relative_error=1e-15,NN_params_save_file_name="NN_params_"+working_directory_name)
 
     FOL_UV = np.array(fol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T))
 
@@ -108,7 +106,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 
 if __name__ == "__main__":
     # Initialize default values
-    fol_num_epochs = 200
+    fol_num_epochs = 2000
     solve_FE = True
     clean_dir = False
 
