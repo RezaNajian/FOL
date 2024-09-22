@@ -3,7 +3,9 @@
 *.npy
 *.png
 *.msh
+*.log
 build/
 *.egg-info/
 dist/
 build/
+play_ground/
