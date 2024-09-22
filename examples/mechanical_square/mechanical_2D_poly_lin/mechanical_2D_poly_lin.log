@@ -1,9 +1,0 @@
-2024-09-16 09:27:55 - Info : FE_model.__init__ finished in 0.0000 seconds
-2024-09-16 09:27:55 - Info : first_voronoi_control.__init__ finished in 0.0000 seconds
-2024-09-16 09:29:02 - Info : first_voronoi_control.ComputeBatchControlledVariables finished in 66.2131 seconds
-[4.60492162e-01 7.50057666e-01 6.65820293e-01 2.38037993e-01
- 3.96986332e-01 1.45654972e-02 3.17005332e-01 5.77184051e-01
- 5.48982900e-01 3.93792251e-01 2.39150197e+01 5.73275054e+01
- 5.99440923e+01 7.29066146e+01 6.33418901e+01]
-2024-09-16 09:29:02 - Info : first_fol.__init__ finished in 0.0000 seconds
-2024-09-16 09:29:02 - Info : first_fol.Initialize finished in 0.4286 seconds

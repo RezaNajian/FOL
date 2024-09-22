@@ -477,7 +477,7 @@ def create_clean_directory(case_dir):
     # Create the new directory
     os.makedirs(case_dir)
 
-def plot_mesh_vec_data_paper_temp(vectors_list):
+def plot_mesh_vec_data_paper_temp(vectors_list:list, plot_name:str="plot",dir:str="U"):
     fontsize = 16
     fig, axs = plt.subplots(2, 4, figsize=(20, 8))  # Adjusted to 4 columns
 
@@ -499,7 +499,7 @@ def plot_mesh_vec_data_paper_temp(vectors_list):
     axs[0, 1].set_yticks([])
     axs[0, 1].set_xticklabels([])  # Remove text on x-axis
     axs[0, 1].set_yticklabels([])  # Remove text on y-axis
-    axs[0, 1].set_title(r'Mesh Grid: $51 \times 51$', fontsize=fontsize)
+    axs[0, 1].set_title(f'Mesh Grid: {N} x {N}', fontsize=fontsize)
     axs[0, 1].grid(True, color='red', linestyle='-', linewidth=1)  # Adding solid grid lines with red color
     axs[0, 1].xaxis.grid(True)
     axs[0, 1].yaxis.grid(True)
@@ -521,7 +521,7 @@ def plot_mesh_vec_data_paper_temp(vectors_list):
     axs[0, 2].set_yticks([])
     axs[0, 2].set_xticklabels([])  # Remove text on x-axis
     axs[0, 2].set_yticklabels([])  # Remove text on y-axis
-    axs[0, 2].set_title('Zoomed-in: $x \in [0.4, 0.8], y \in [0.2, 0.6]$', fontsize=fontsize)
+    axs[0, 2].set_title('Zoomed-in: $x \in [0.4, 0.6], y \in [0.2, 0.6]$', fontsize=fontsize)
     cbar = fig.colorbar(im, ax=axs[0, 2], pad=0.02, shrink=0.7)
     cbar.ax.tick_params(labelsize=fontsize)
     cbar.ax.yaxis.labelpad = 5
@@ -535,15 +535,15 @@ def plot_mesh_vec_data_paper_temp(vectors_list):
     # Plot cross-sections along x-axis at y=0.5 for U (FOL and FEM) in the second row, fourth column
     y_idx = int(N * 0.5)
     U1 = vectors_list[0].reshape(N, N)
-    axs[0, 3].plot(np.linspace(0, 1, N), U1[y_idx, :], label='Conductivity', color='black')
+    axs[0, 3].plot(np.linspace(0, 1, N), U1[y_idx, :], label='Elasticity', color='black')
     axs[0, 3].set_xlim([0, 1])
     #axs[0, 3].set_ylim([min(U1[y_idx, :].min()), max(U1[y_idx, :].max())])
     axs[0, 3].set_aspect(aspect='auto')
-    axs[0, 3].set_title('Cross-section of K at y=0.5', fontsize=fontsize)
+    axs[0, 3].set_title('Cross-section of E at y=0.5', fontsize=fontsize)
     axs[0, 3].legend(fontsize=fontsize)
     axs[0, 3].grid(True)
     axs[0, 3].set_xlabel('x', fontsize=fontsize)
-    axs[0, 3].set_ylabel('K', fontsize=fontsize)
+    axs[0, 3].set_ylabel('E', fontsize=fontsize)
 
 
     # Plot the second entity in the second row
@@ -551,7 +551,7 @@ def plot_mesh_vec_data_paper_temp(vectors_list):
     im = axs[1, 0].imshow(data.reshape(N, N), cmap='coolwarm', aspect='equal')
     axs[1, 0].set_xticks([])
     axs[1, 0].set_yticks([])
-    axs[1, 0].set_title('$T$, FOL', fontsize=fontsize)
+    axs[1, 0].set_title(f'${dir}$, FOL', fontsize=fontsize)
     cbar = fig.colorbar(im, ax=axs[1, 0], pad=0.02, shrink=0.7)
     cbar.ax.tick_params(labelsize=fontsize)
     cbar.ax.yaxis.labelpad = 5
@@ -562,7 +562,7 @@ def plot_mesh_vec_data_paper_temp(vectors_list):
     im = axs[1, 1].imshow(data.reshape(N, N), cmap='coolwarm', aspect='equal')
     axs[1, 1].set_xticks([])
     axs[1, 1].set_yticks([])
-    axs[1, 1].set_title('$T$, FEM', fontsize=fontsize)
+    axs[1, 1].set_title(f'${dir}$, FEM', fontsize=fontsize)
     cbar = fig.colorbar(im, ax=axs[1, 1], pad=0.02, shrink=0.7)
     cbar.ax.tick_params(labelsize=fontsize)
     cbar.ax.yaxis.labelpad = 5
@@ -573,7 +573,7 @@ def plot_mesh_vec_data_paper_temp(vectors_list):
     im = axs[1, 2].imshow(diff_data_1.reshape(N, N), cmap='coolwarm', aspect='equal')
     axs[1, 2].set_xticks([])
     axs[1, 2].set_yticks([])
-    axs[1, 2].set_title('Abs. Difference $T$', fontsize=fontsize)
+    axs[1, 2].set_title(f'Abs. Difference ${dir}$', fontsize=fontsize)
     cbar = fig.colorbar(im, ax=axs[1, 2], pad=0.02, shrink=0.7)
     cbar.ax.tick_params(labelsize=fontsize)
     cbar.ax.yaxis.labelpad = 5
@@ -583,54 +583,61 @@ def plot_mesh_vec_data_paper_temp(vectors_list):
     y_idx = int(N * 0.5)
     U1 = vectors_list[1].reshape(N, N)
     U2 = vectors_list[2].reshape(N, N)
-    axs[1, 3].plot(np.linspace(0, 1, N), U1[y_idx, :], label='U FOL', color='blue')
-    axs[1, 3].plot(np.linspace(0, 1, N), U2[y_idx, :], label='U FEM', color='red')
+    axs[1, 3].plot(np.linspace(0, 1, N), U1[y_idx, :], label=f'{dir} FOL', color='blue')
+    axs[1, 3].plot(np.linspace(0, 1, N), U2[y_idx, :], label=f'{dir} FEM', color='red')
     axs[1, 3].set_xlim([0, 1])
     axs[1, 3].set_ylim([min(U1[y_idx, :].min(), U2[y_idx, :].min()), max(U1[y_idx, :].max(), U2[y_idx, :].max())])
     axs[1, 3].set_aspect(aspect='auto')
-    axs[1, 3].set_title('Cross-section of T at y=0.5', fontsize=fontsize)
+    axs[1, 3].set_title(f'Cross-section of {dir} at y=0.5', fontsize=fontsize)
     axs[1, 3].legend(fontsize=fontsize)
     axs[1, 3].grid(True)
     axs[1, 3].set_xlabel('x', fontsize=fontsize)
-    axs[1, 3].set_ylabel('T', fontsize=fontsize)
+    axs[1, 3].set_ylabel(f'{dir}', fontsize=fontsize)
 
     plt.tight_layout()
 
     # Save the figure in multiple formats
-    plt.savefig('plot_mesh_vec_data.png', dpi=300)
-    plt.savefig('plot_mesh_vec_data.pdf')
+    plt.savefig(plot_name+'.png', dpi=300)
+    # plt.savefig(plot_name+'.pdf')
 
     plt.show()
 
 
 
-def plot_mesh_vec_grad_data_thermal(vectors_list):
+def plot_mesh_vec_grad_data_mechanics(vectors_list:list, plot_name:str="plot", loss_settings:dict={}):
     fontsize = 16
     fig, axs = plt.subplots(2, 4, figsize=(20, 8))
 
     data = vectors_list[0]
     L = 1
     N = int((data.reshape(-1, 1).shape[0])**0.5)
+    nu = loss_settings["poisson_ratio"]
+    e = loss_settings["young_modulus"]
+    mu = e / (2*(1+nu))
+    lambdaa = nu * e / ((1+nu)*(1-2*nu))
 
     dx = L / (N - 1)
 
     U_fem = vectors_list[2]
-    dU_dx_fem = -1 * data.reshape(N, N) * np.gradient(U_fem.reshape(N, N), dx, axis=1)
-    dU_dy_fem = -1 * data.reshape(N, N) * np.gradient(U_fem.reshape(N, N), dx, axis=0)
+    domain_map_matrix = vectors_list[0].reshape(N, N)
+    dU_dx_fem = np.gradient(U_fem.reshape(N, N), dx, axis=1)
+    dU_dy_fem = np.gradient(U_fem.reshape(N, N), dx, axis=0)
+    stress_xx_fem = domain_map_matrix * ((lambdaa + 2*mu) * dU_dx_fem + lambdaa * dU_dy_fem)
+    stress_yy_fem = domain_map_matrix * (lambdaa * dU_dx_fem + (lambdaa + 2*mu) * dU_dy_fem)
 
-    im = axs[0, 1].imshow(dU_dx_fem, cmap='plasma')
+    im = axs[0, 1].imshow(stress_xx_fem, cmap='plasma')
     axs[0, 1].set_xticks([])
     axs[0, 1].set_yticks([])
-    axs[0, 1].set_title('Heat flux $q_x$, FEM', fontsize=fontsize)
+    axs[0, 1].set_title('$\sigma_{xx}$, FEM', fontsize=fontsize)
     cbar = fig.colorbar(im, ax=axs[0, 0], pad=0.02, shrink=0.7)
     cbar.ax.tick_params(labelsize=fontsize)
     cbar.ax.yaxis.labelpad = 5
     cbar.ax.tick_params(length=5, width=1)
 
-    im = axs[1, 1].imshow(dU_dy_fem, cmap='plasma')
+    im = axs[1, 1].imshow(stress_yy_fem, cmap='plasma')
     axs[1, 1].set_xticks([])
     axs[1, 1].set_yticks([])
-    axs[1, 1].set_title('Heat flux $q_y$, FEM', fontsize=fontsize)
+    axs[1, 1].set_title('$\sigma_{yy}$, FEM', fontsize=fontsize)
     cbar = fig.colorbar(im, ax=axs[1, 0], pad=0.02, shrink=0.7)
     cbar.ax.tick_params(labelsize=fontsize)
     cbar.ax.yaxis.labelpad = 5
@@ -638,47 +645,49 @@ def plot_mesh_vec_grad_data_thermal(vectors_list):
 
 
     U_fol = vectors_list[1]
-    dU_dx_fol = -1 * data.reshape(N, N) * np.gradient(U_fol.reshape(N, N), dx, axis=1)
-    dU_dy_fol = -1 * data.reshape(N, N) * np.gradient(U_fol.reshape(N, N), dx, axis=0)
+    dU_dx_fol = np.gradient(U_fol.reshape(N, N), dx, axis=1)
+    dU_dy_fol = np.gradient(U_fol.reshape(N, N), dx, axis=0)
+    stress_xx_fol = domain_map_matrix * ((lambdaa + 2*mu) * dU_dx_fol + lambdaa * dU_dy_fol)
+    stress_yy_fol = domain_map_matrix * (lambdaa * dU_dx_fol + (lambdaa + 2*mu) * dU_dy_fol)
 
-    min_v = np.min(dU_dx_fem)
-    max_v = np.max(dU_dx_fem)
-    im = axs[0, 0].imshow(dU_dx_fol, cmap='plasma', vmin=min_v, vmax=max_v)
+    min_v = np.min(stress_xx_fem)
+    max_v = np.max(stress_xx_fem)
+    im = axs[0, 0].imshow(stress_xx_fol, cmap='plasma', vmin=min_v, vmax=max_v)
     axs[0, 0].set_xticks([])
     axs[0, 0].set_yticks([])
-    axs[0, 0].set_title('Stress $q_{x}$, FOL', fontsize=fontsize)
+    axs[0, 0].set_title('$\sigma_{xx}$, FOL', fontsize=fontsize)
     cbar = fig.colorbar(im, ax=axs[0, 1], pad=0.02, shrink=0.7)
     cbar.ax.tick_params(labelsize=fontsize)
     cbar.ax.yaxis.labelpad = 5
     cbar.ax.tick_params(length=5, width=1)
 
-    min_v = np.min(dU_dy_fem)
-    max_v = np.max(dU_dy_fem)
-    im = axs[1, 0].imshow(dU_dy_fol, cmap='plasma', vmin=min_v, vmax=max_v)
+    min_v = np.min(stress_yy_fem)
+    max_v = np.max(stress_yy_fem)
+    im = axs[1, 0].imshow(stress_yy_fol, cmap='plasma', vmin=min_v, vmax=max_v)
     axs[1, 0].set_xticks([])
     axs[1, 0].set_yticks([])
-    axs[1, 0].set_title('Stress $q_{y}$, FOL', fontsize=fontsize)
+    axs[1, 0].set_title('$\sigma_{yy}$, FOL', fontsize=fontsize)
     cbar = fig.colorbar(im, ax=axs[1, 1], pad=0.02, shrink=0.7)
     cbar.ax.tick_params(labelsize=fontsize)
     cbar.ax.yaxis.labelpad = 5
     cbar.ax.tick_params(length=5, width=1)
 
 
-    diff_data_2 = np.abs(dU_dx_fem - dU_dx_fol)
+    diff_data_2 = np.abs(stress_xx_fem - stress_xx_fol)
     im = axs[0, 2].imshow(diff_data_2, cmap='plasma')
     axs[0, 2].set_xticks([])
     axs[0, 2].set_yticks([])
-    axs[0, 2].set_title('Abs. Difference $q_{x}$', fontsize=fontsize)
+    axs[0, 2].set_title('Abs. Difference $\sigma_{xx}$', fontsize=fontsize)
     cbar = fig.colorbar(im, ax=axs[0, 2], pad=0.02, shrink=0.7)
     cbar.ax.tick_params(labelsize=fontsize)
     cbar.ax.yaxis.labelpad = 5
     cbar.ax.tick_params(length=5, width=1)
 
-    diff_data_2 = np.abs(dU_dy_fem - dU_dy_fol)
+    diff_data_2 = np.abs(stress_yy_fem - stress_yy_fol)
     im = axs[1, 2].imshow(diff_data_2, cmap='plasma')
     axs[1, 2].set_xticks([])
     axs[1, 2].set_yticks([])
-    axs[1, 2].set_title('Abs. Difference $q_{y}$', fontsize=fontsize)
+    axs[1, 2].set_title('Abs. Difference $\sigma_{yy}$', fontsize=fontsize)
     cbar = fig.colorbar(im, ax=axs[1, 2], pad=0.02, shrink=0.7)
     cbar.ax.tick_params(labelsize=fontsize)
     cbar.ax.yaxis.labelpad = 5
@@ -687,20 +696,20 @@ def plot_mesh_vec_grad_data_thermal(vectors_list):
 
     # Extract cross-sections at y = 0.5
     y_index = N // 2
-    stress_x_cross_fem = dU_dx_fem[y_index, :]
-    stress_y_cross_fem = dU_dy_fem[y_index, :]
-    stress_x_cross_fol = dU_dx_fol[y_index, :]
-    stress_y_cross_fol = dU_dy_fol[y_index, :]
+    stress_x_cross_fem = stress_xx_fem[y_index, :]
+    stress_y_cross_fem = stress_yy_fem[y_index, :]
+    stress_x_cross_fol = stress_xx_fol[y_index, :]
+    stress_y_cross_fol = stress_yy_fol[y_index, :]
 
     # Plot cross-sections in the fourth column
     axs[0, 3].plot(np.linspace(0, L, N), stress_x_cross_fem, label='FEM', color='r')
     axs[0, 3].plot(np.linspace(0, L, N), stress_x_cross_fol, label='FOL', color='b')
-    axs[0, 3].set_title('Cross-section $q_x$', fontsize=fontsize)
+    axs[0, 3].set_title('Cross-section $\sigma_{xx}$', fontsize=fontsize)
     axs[0, 3].legend()
 
     axs[1, 3].plot(np.linspace(0, L, N), stress_y_cross_fem, label='FEM', color='r')
     axs[1, 3].plot(np.linspace(0, L, N), stress_y_cross_fol, label='FOL', color='b')
-    axs[1, 3].set_title('Cross-section $q_y$', fontsize=fontsize)
+    axs[1, 3].set_title('Cross-section $\sigma_{yy}$', fontsize=fontsize)
     axs[1, 3].legend()
 
     # Save cross-section data to a text file
@@ -711,8 +720,8 @@ def plot_mesh_vec_grad_data_thermal(vectors_list):
 
 
     plt.tight_layout()
-    plt.savefig('plot_mesh_vec_grad_data.png', dpi=300)
-    plt.savefig('plot_mesh_vec_grad_data.pdf')
+    plt.savefig(plot_name+'.png', dpi=300)
+    # plt.savefig(plot_name+'.pdf')
     plt.show()
 
 def TensorToVoigt(tensor):

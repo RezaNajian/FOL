@@ -29,17 +29,18 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 
     # creation of the objects
     fe_model = FiniteElementModel("FE_model",model_info)
-    mechanical_loss_2d = MechanicalLoss2D("mechanical_loss_2d",fe_model,{"young_modulus":1,"poisson_ratio":0.3,"num_gp":2})
+    loss_settings = {"young_modulus":1,"poisson_ratio":0.3,"num_gp":2}
+    mechanical_loss_2d = MechanicalLoss2D("mechanical_loss_2d",fe_model,loss_settings)
 
     # k_rangeof_values in the following could be a certain amount of values from a list instead of a tuple
     # voronoi_control_settings = {"numberof_seeds":5,"k_rangeof_values":list(0.01*np.arange(10,100,10))}
-    voronoi_control_settings = {"numberof_seeds":5,"k_rangeof_values":(1,100)}
+    voronoi_control_settings = {"numberof_seeds":5,"k_rangeof_values":(0.1,1)}
     voronoi_control = VoronoiControl("first_voronoi_control",voronoi_control_settings,fe_model)
 
     # create some random coefficients & K for training
     create_random_coefficients = False
     if create_random_coefficients:
-        number_of_random_samples = 1000
+        number_of_random_samples = 100
         coeffs_matrix,K_matrix = create_random_voronoi_samples(voronoi_control,number_of_random_samples)
         export_dict = {}
         export_dict["coeffs_matrix"] = coeffs_matrix
@@ -51,8 +52,6 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
         
         coeffs_matrix = loaded_dict["coeffs_matrix"]
     
-    solution_file = os.path.join(case_dir,"coeffs_mat.txt")
-    np.savetxt(solution_file,coeffs_matrix)
     K_matrix = voronoi_control.ComputeBatchControlledVariables(coeffs_matrix)
 
     export_domain = False
@@ -62,45 +61,88 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
         with open(f'voronoi_domain_dict.pkl', 'wb') as f:
             pickle.dump(domain_export_dict,f)
 
-    
-    # specify id of the K of interest
-    eval_id = 32
-    print(coeffs_matrix[eval_id])
+    # set NN hyper-parameters
+    fol_num_epochs = 1000
+    fol_batch_size = 1
+    fol_learning_rate = 0.0001
+    hidden_layer = [1]
+    # here we specify whther to do pr_le or on the fly solve
+    parametric_learning = True
+    if parametric_learning:
+        # now create train and test samples
+        num_train_samples = int(0.8 * coeffs_matrix.shape[0])
+        pc_train_mat = coeffs_matrix[0:num_train_samples]
+        pc_train_nodal_value_matrix = K_matrix[0:num_train_samples]
+        pc_test_mat = coeffs_matrix[num_train_samples:]
+        pc_test_nodal_value_matrix = K_matrix[num_train_samples:]
+    else:
+        on_the_fly_id = -1
+        pc_train_mat = coeffs_matrix[on_the_fly_id].reshape(-1,1).T
+        pc_train_nodal_value_matrix = K_matrix[on_the_fly_id]
+
+    first_fe_solver = FiniteElementSolver("first_fe_solver",mechanical_loss_2d)
 
     # now we need to create, initialize and train fol
-    fol = FiniteElementOperatorLearning("first_fol",voronoi_control,[mechanical_loss_2d],[10],
+    fol = FiniteElementOperatorLearning("first_fol",voronoi_control,[mechanical_loss_2d],hidden_layer,
                                         "swish",load_NN_params=False,working_directory=working_directory_name)
     fol.Initialize()
-
     start_time = time.process_time()
-    fol.Train(loss_functions_weights=[1],X_train=coeffs_matrix,batch_size=1,num_epochs=fol_num_epochs,
-                learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",absolute_error=1e-15,
+    fol.Train(loss_functions_weights=[1],X_train=pc_train_mat,batch_size=fol_batch_size,num_epochs=fol_num_epochs,
+                learning_rate=fol_learning_rate,optimizer="adam",convergence_criterion="total_loss",absolute_error=1e-15,
                 relative_error=1e-15,NN_params_save_file_name="NN_params_"+working_directory_name)
 
-    FOL_UV = np.array(fol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T))
+    if parametric_learning:
+        UV_train = fol.Predict(pc_train_mat)
+        UV_test = fol.Predict(pc_test_mat)
 
-    # solve FE here
-    if solve_FE:
-        first_fe_solver = FiniteElementSolver("first_fe_solver",mechanical_loss_2d)
-        start_time = time.process_time()
-        FE_UV = np.array(first_fe_solver.SingleSolve(K_matrix[eval_id],np.zeros(2*fe_model.GetNumberOfNodes())))  
+        test_eval_ids = [0,1]
+        for eval_id in test_eval_ids:
+            FOL_UV = UV_test[eval_id]
+            FE_UV = np.array(first_fe_solver.SingleSolve(pc_test_nodal_value_matrix[eval_id],np.zeros(2*fe_model.GetNumberOfNodes())))  
+            print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
+            absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
+            
+            # Plot displacement field U
+            vectors_list = [pc_test_nodal_value_matrix[eval_id],FOL_UV[::2],FE_UV[::2],absolute_error[::2]]
+            plot_mesh_vec_data_paper_temp(vectors_list,f"U_test_sample_{eval_id}","U")
+            # Plot displacement field V
+            vectors_list = [pc_test_nodal_value_matrix[eval_id],FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]]
+            plot_mesh_vec_data_paper_temp(vectors_list,f"V_test_sample_{eval_id}","V")
+            # Plot Stress field
+            plot_mesh_vec_grad_data_mechanics(vectors_list, f"stress_test_sample_{eval_id}", loss_settings)
+
+
+        train_eval_ids = [0,1]
+        for eval_id in train_eval_ids:
+            FOL_UV = UV_train[eval_id]
+            FE_UV = np.array(first_fe_solver.SingleSolve(pc_train_nodal_value_matrix[eval_id],np.zeros(2*fe_model.GetNumberOfNodes())))
+            print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
+            absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
+            
+            # Plot displacement field U
+            vectors_list = [pc_train_nodal_value_matrix[eval_id],FOL_UV[::2],FE_UV[::2],absolute_error[::2]]
+            plot_mesh_vec_data_paper_temp(vectors_list,f"U_train_sample_{eval_id}","U")
+            # Plot displacement field V
+            vectors_list = [pc_train_nodal_value_matrix[eval_id],FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]]
+            plot_mesh_vec_data_paper_temp(vectors_list,f"V_train_sample_{eval_id}","V")
+            # Plot Stress field
+            plot_mesh_vec_grad_data_mechanics(vectors_list,f"stress_train_sample_{eval_id}", loss_settings)
+
+    else:
+        FOL_UV = fol.Predict(pc_train_mat)
+        FE_UV = np.array(first_fe_solver.SingleSolve(pc_train_nodal_value_matrix,np.zeros(2*fe_model.GetNumberOfNodes())))
         print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
-
-        relative_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
+        absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
         
-        plot_mesh_vec_data(model_settings["L"], [K_matrix[eval_id],FOL_UV[::2],FE_UV[::2],relative_error[::2]], 
-                        subplot_titles= ['Heterogeneity', 'FOL_U', 'FE_U', "absolute error"], fig_title=None, cmap='viridis',
-                            block_bool=False, colour_bar=True, colour_bar_name=None,
-                            X_axis_name='X', Y_axis_name='Y', show=True, file_name=os.path.join(case_dir,'plot_U_error.png'))
+        # Plot displacement field U
+        vectors_list = [pc_train_nodal_value_matrix,FOL_UV[::2],FE_UV[::2],absolute_error[::2]]
+        plot_mesh_vec_data_paper_temp(vectors_list,"U_train","U")
+        # Plot displacement field V
+        vectors_list = [pc_train_nodal_value_matrix,FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]]
+        plot_mesh_vec_data_paper_temp(vectors_list,"V_train","V")
+        # Plot Stress field
+        plot_mesh_vec_grad_data_mechanics(vectors_list,"stress_train", loss_settings)
 
-        plot_mesh_vec_data(model_settings["L"], [K_matrix[eval_id],FOL_UV[1::2],FE_UV[1::2],relative_error[1::2]], 
-                        subplot_titles= ['Heterogeneity', 'FOL_V', 'FE_V', "absolute error"], fig_title=None, cmap='viridis',
-                            block_bool=False, colour_bar=True, colour_bar_name=None,
-                            X_axis_name='X', Y_axis_name='Y', show=True, file_name=os.path.join(case_dir,'plot_V_error.png'))
-        
-        # vectors_list = [K_matrix[eval_id],FOL_UV[::2],FE_UV[::2],relative_error[::2]]
-        # plot_mesh_vec_data_paper_temp(vectors_list)
-    
     if clean_dir:
         shutil.rmtree(case_dir)
 

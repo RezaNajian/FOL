@@ -5,7 +5,7 @@
 """
 from  .control import Control
 import jax.numpy as jnp
-from jax import jit,jacfwd
+from jax import jit,jacfwd,vmap
 from jax.random import PRNGKey, normal
 from scipy.spatial import KDTree
 import numpy as np
@@ -21,12 +21,6 @@ class VoronoiControl(Control):
         self.settings = control_settings
         self.numberof_seeds = self.settings["numberof_seeds"]
         self.k_rangeof_values = self.settings["k_rangeof_values"]
-
-        # if isinstance(self.settings["k_rangeof_values"],tuple):
-        #     start, end = self.settings["k_rangeof_values"]
-        #     self.k_rangeof_values = self.settings["k_rangeof_values"]
-        # if isinstance(self.settings["k_rangeof_values"],list):
-        #     self.k_rangeof_values = self.settings["k_rangeof_values"]
 
         # The number 3 stands for the following: x coordinates array, y coordinates array, and K values
         self.num_control_vars = self.numberof_seeds * 3 
@@ -71,8 +65,9 @@ class VoronoiControl(Control):
             distances = euclidean_distance(grid_point, seed_points)
             nearest_seed_idx = jnp.argmin(distances)
             return k_values[nearest_seed_idx]
-        
-        K = jnp.array([assign_value_to_grid(grid_point) for grid_point in grid_points])
+
+        assign_value_to_grid_vmap = vmap(assign_value_to_grid)
+        K = assign_value_to_grid_vmap(grid_points)
 
         return K
 
