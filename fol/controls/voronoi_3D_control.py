@@ -6,11 +6,14 @@
 from  .control import Control
 import jax.numpy as jnp
 from jax import jit,jacfwd,vmap
+from jax.random import PRNGKey, normal
+from scipy.spatial import KDTree
 import numpy as np
 from functools import partial
+from jax.nn import sigmoid
 from fol.tools.decoration_functions import *
 
-class VoronoiControl(Control):
+class VoronoiControl3D(Control):
     @print_with_timestamp_and_execution_time
     def __init__(self,control_name: str,control_settings,fe_model):
         super().__init__(control_name)
@@ -20,7 +23,7 @@ class VoronoiControl(Control):
         self.k_rangeof_values = self.settings["k_rangeof_values"]
 
         # The number 3 stands for the following: x coordinates array, y coordinates array, and K values
-        self.num_control_vars = self.numberof_seeds * 3
+        self.num_control_vars = self.numberof_seeds * 4 
         self.num_controlled_vars = self.fe_model.GetNumberOfNodes()
 
     def GetNumberOfVariables(self):
@@ -39,21 +42,24 @@ class VoronoiControl(Control):
     def ComputeControlledVariables(self, variable_vector: jnp.array):
         x_coord = variable_vector[:self.numberof_seeds]
         y_coord = variable_vector[self.numberof_seeds:2 * self.numberof_seeds]
-        k_values = variable_vector[2 * self.numberof_seeds:]
+        z_coord = variable_vector[2 * self.numberof_seeds:3 * self.numberof_seeds]
+        k_values = variable_vector[3 * self.numberof_seeds:]
         X = np.asarray(self.fe_model.GetNodesX())
         Y = np.asarray(self.fe_model.GetNodesY())
+        Z = np.asarray(self.fe_model.GetNodesZ())
         K = jnp.zeros((self.num_controlled_vars))
-        seed_points = jnp.vstack((x_coord, y_coord)).T
+        seed_points = jnp.vstack((jnp.vstack((x_coord, y_coord)),z_coord)).T
         
         if seed_points.shape[0] < 4:
             raise ValueError("At least 4 seed points are required to create a Voronoi diagram.")
         if not all([x_coord.shape[-1] == self.numberof_seeds, 
                     y_coord.shape[-1] == self.numberof_seeds,
+                    z_coord.shape[-1] == self.numberof_seeds,
                     k_values.shape[-1] == self.numberof_seeds]):
             raise ValueError("Number of coordinates should be equal to number of seed points!")
         
         # Create the grid points
-        grid_points = jnp.vstack([X.ravel(), Y.ravel()]).T
+        grid_points = jnp.vstack([jnp.vstack([X.ravel(), Y.ravel()]), Z.ravel()]).T
         
         # Calculate Euclidean distance between each grid point and each seed point
         def euclidean_distance(grid_point, seed_points):

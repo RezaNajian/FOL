@@ -448,22 +448,32 @@ def create_random_fourier_samples(fourier_control,numberof_sample):
 
     return coeffs_matrix,K_matrix
 
-def create_random_voronoi_samples(voronoi_control,numberof_sample):
+def create_random_voronoi_samples(voronoi_control,number_of_sample,dim=3):
     number_seeds = voronoi_control.numberof_seeds
     rangeofValues = voronoi_control.k_rangeof_values
     numberofVar = voronoi_control.GetNumberOfVariables()
     coeffs_matrix = np.zeros((0,numberofVar))
     
-    for _ in range(numberof_sample):
+    for _ in range(number_of_sample):
         x_coords = np.random.rand(number_seeds)
         y_coords = np.random.rand(number_seeds)
+        if dim == 3:
+            z_coords = np.random.rand(number_seeds)
+        
+        
         if isinstance(rangeofValues, tuple):
             K_values = np.random.uniform(rangeofValues[0],rangeofValues[-1],number_seeds)
         if isinstance(rangeofValues, list):
             K_values = np.random.choice(rangeofValues, size=number_seeds)
         
         Kcoeffs = np.zeros((0,numberofVar))
-        Kcoeffs = np.concatenate((x_coords.reshape(1,-1), y_coords.reshape(1,-1), K_values.reshape(1,-1)), axis=1)
+        if dim == 3:
+            Kcoeffs = np.concatenate((x_coords.reshape(1,-1), y_coords.reshape(1,-1), 
+                                  z_coords.reshape(1,-1), K_values.reshape(1,-1)), axis=1)
+        else:
+            Kcoeffs = np.concatenate((x_coords.reshape(1,-1), y_coords.reshape(1,-1), 
+                                      K_values.reshape(1,-1)), axis=1)
+        
         coeffs_matrix = np.vstack((coeffs_matrix,Kcoeffs))
     K_matrix = voronoi_control.ComputeBatchControlledVariables(coeffs_matrix)
     return coeffs_matrix,K_matrix

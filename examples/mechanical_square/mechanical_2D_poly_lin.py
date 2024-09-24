@@ -38,16 +38,16 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     voronoi_control = VoronoiControl("first_voronoi_control",voronoi_control_settings,fe_model)
 
     # create some random coefficients & K for training
-    create_random_coefficients = False
+    create_random_coefficients = True
     if create_random_coefficients:
         number_of_random_samples = 100
-        coeffs_matrix,K_matrix = create_random_voronoi_samples(voronoi_control,number_of_random_samples)
+        coeffs_matrix,K_matrix = create_random_voronoi_samples(voronoi_control,number_of_random_samples,dim=2)
         export_dict = {}
         export_dict["coeffs_matrix"] = coeffs_matrix
-        with open(f'voronoi_control_dict.pkl', 'wb') as f:
+        with open(f'voronoi_control_2D_dict.pkl', 'wb') as f:
             pickle.dump(export_dict,f)
     else:
-        with open(f'voronoi_control_dict.pkl', 'rb') as f:
+        with open(f'voronoi_control_2D_dict.pkl', 'rb') as f:
             loaded_dict = pickle.load(f)
         
         coeffs_matrix = loaded_dict["coeffs_matrix"]
@@ -67,7 +67,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     fol_learning_rate = 0.0001
     hidden_layer = [1]
     # here we specify whther to do pr_le or on the fly solve
-    parametric_learning = True
+    parametric_learning = False
     if parametric_learning:
         # now create train and test samples
         num_train_samples = int(0.8 * coeffs_matrix.shape[0])
@@ -90,58 +90,62 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     fol.Train(loss_functions_weights=[1],X_train=pc_train_mat,batch_size=fol_batch_size,num_epochs=fol_num_epochs,
                 learning_rate=fol_learning_rate,optimizer="adam",convergence_criterion="total_loss",absolute_error=1e-15,
                 relative_error=1e-15,NN_params_save_file_name="NN_params_"+working_directory_name)
+    print(f"\n############### fol train took: {time.process_time() - start_time} s ###############\n")
 
     if parametric_learning:
         UV_train = fol.Predict(pc_train_mat)
         UV_test = fol.Predict(pc_test_mat)
 
-        test_eval_ids = [0,1]
+        test_eval_ids = [0]
         for eval_id in test_eval_ids:
             FOL_UV = UV_test[eval_id]
+            start_time = time.process_time()
             FE_UV = np.array(first_fe_solver.SingleSolve(pc_test_nodal_value_matrix[eval_id],np.zeros(2*fe_model.GetNumberOfNodes())))  
             print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
             absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
             
             # Plot displacement field U
             vectors_list = [pc_test_nodal_value_matrix[eval_id],FOL_UV[::2],FE_UV[::2],absolute_error[::2]]
-            plot_mesh_vec_data_paper_temp(vectors_list,f"U_test_sample_{eval_id}","U")
+            plot_mesh_vec_data_paper_temp(vectors_list,f"{working_directory_name}\\U_test_sample_{eval_id}","U")
             # Plot displacement field V
             vectors_list = [pc_test_nodal_value_matrix[eval_id],FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]]
-            plot_mesh_vec_data_paper_temp(vectors_list,f"V_test_sample_{eval_id}","V")
+            plot_mesh_vec_data_paper_temp(vectors_list,f"{working_directory_name}\\V_test_sample_{eval_id}","V")
             # Plot Stress field
-            plot_mesh_vec_grad_data_mechanics(vectors_list, f"stress_test_sample_{eval_id}", loss_settings)
+            plot_mesh_vec_grad_data_mechanics(vectors_list, f"{working_directory_name}\\stress_test_sample_{eval_id}", loss_settings)
 
 
-        train_eval_ids = [0,1]
+        train_eval_ids = [0]
         for eval_id in train_eval_ids:
             FOL_UV = UV_train[eval_id]
+            start_time = time.process_time()
             FE_UV = np.array(first_fe_solver.SingleSolve(pc_train_nodal_value_matrix[eval_id],np.zeros(2*fe_model.GetNumberOfNodes())))
             print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
             absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
             
             # Plot displacement field U
             vectors_list = [pc_train_nodal_value_matrix[eval_id],FOL_UV[::2],FE_UV[::2],absolute_error[::2]]
-            plot_mesh_vec_data_paper_temp(vectors_list,f"U_train_sample_{eval_id}","U")
+            plot_mesh_vec_data_paper_temp(vectors_list,f"{working_directory_name}\\U_train_sample_{eval_id}","U")
             # Plot displacement field V
             vectors_list = [pc_train_nodal_value_matrix[eval_id],FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]]
-            plot_mesh_vec_data_paper_temp(vectors_list,f"V_train_sample_{eval_id}","V")
+            plot_mesh_vec_data_paper_temp(vectors_list,f"{working_directory_name}\\V_train_sample_{eval_id}","V")
             # Plot Stress field
-            plot_mesh_vec_grad_data_mechanics(vectors_list,f"stress_train_sample_{eval_id}", loss_settings)
+            plot_mesh_vec_grad_data_mechanics(vectors_list,f"{working_directory_name}\\stress_train_sample_{eval_id}", loss_settings)
 
     else:
         FOL_UV = fol.Predict(pc_train_mat)
+        start_time = time.process_time()
         FE_UV = np.array(first_fe_solver.SingleSolve(pc_train_nodal_value_matrix,np.zeros(2*fe_model.GetNumberOfNodes())))
         print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
         absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
         
         # Plot displacement field U
         vectors_list = [pc_train_nodal_value_matrix,FOL_UV[::2],FE_UV[::2],absolute_error[::2]]
-        plot_mesh_vec_data_paper_temp(vectors_list,"U_train","U")
+        plot_mesh_vec_data_paper_temp(vectors_list,f"{working_directory_name}\\U_train","U")
         # Plot displacement field V
         vectors_list = [pc_train_nodal_value_matrix,FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]]
-        plot_mesh_vec_data_paper_temp(vectors_list,"V_train","V")
+        plot_mesh_vec_data_paper_temp(vectors_list,f"{working_directory_name}\\V_train","V")
         # Plot Stress field
-        plot_mesh_vec_grad_data_mechanics(vectors_list,"stress_train", loss_settings)
+        plot_mesh_vec_grad_data_mechanics(vectors_list,f"{working_directory_name}\\stress_train", loss_settings)
 
     if clean_dir:
         shutil.rmtree(case_dir)
