@@ -18,12 +18,6 @@ class FourierControl(Control):
         self.settings = control_settings
         self.fe_mesh = fe_mesh
 
-    def GetNumberOfVariables(self):
-        return self.num_control_vars
-    
-    def GetNumberOfControlledVariables(self):
-        return self.num_controlled_vars
-
     @print_with_timestamp_and_execution_time
     def Initialize(self) -> None:
         if "min" in self.settings.keys():
@@ -43,7 +37,7 @@ class FourierControl(Control):
         self.num_z_freqs = self.z_freqs.shape[-1]
         self.num_control_vars = self.num_x_freqs * self.num_y_freqs * self.num_z_freqs + 1
         self.num_controlled_vars = self.fe_mesh.GetNumberOfNodes()
-        self.__initialized = True
+        self.initialized = True
 
     def Finalize(self) -> None:
         pass

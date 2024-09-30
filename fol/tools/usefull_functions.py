@@ -288,29 +288,23 @@ def create_random_fourier_samples(fourier_control,numberof_sample):
     return coeffs_matrix,K_matrix
 
 def create_random_voronoi_samples(voronoi_control,numberof_sample):
-    # N = int(voronoi_control.GetNumberOfControlledVariables()**0.5)
     number_seeds = voronoi_control.numberof_seeds
     rangeofValues = voronoi_control.k_rangeof_values
     numberofVar = voronoi_control.GetNumberOfVariables()
-    K_matrix = np.zeros((numberof_sample,voronoi_control.GetNumberOfControlledVariables()))
-    coeffs_matrix = np.zeros((numberof_sample,numberofVar))
+    coeffs_matrix = np.zeros((0,numberofVar))
     
-    for i in range(numberof_sample):
+    for _ in range(numberof_sample):
         x_coords = np.random.rand(number_seeds)
         y_coords = np.random.rand(number_seeds)
-        if isinstance(rangeofValues, range):
+        if isinstance(rangeofValues, tuple):
             K_values = np.random.uniform(rangeofValues[0],rangeofValues[-1],number_seeds)
         if isinstance(rangeofValues, list):
             K_values = np.random.choice(rangeofValues, size=number_seeds)
         
         Kcoeffs = np.zeros((0,numberofVar))
         Kcoeffs = np.concatenate((x_coords.reshape(1,-1), y_coords.reshape(1,-1), K_values.reshape(1,-1)), axis=1)
-        K = voronoi_control.ComputeControlledVariables(Kcoeffs)
-        K_matrix[i,:] = K
-        coeffs_matrix[i,:] = Kcoeffs
-
-    # K_matrix = np.vstack((K_matrix,0.5*np.ones(K_matrix.shape[1])))
-    # coeffs_matrix = np.vstack((coeffs_matrix,np.array([-0.5,0.5,0.5,-0.5, 0.5,0.5,-0.5,-0.5, 0.5,0.5,0.5,0.5])))
+        coeffs_matrix = np.vstack((coeffs_matrix,Kcoeffs))
+    K_matrix = voronoi_control.ComputeBatchControlledVariables(coeffs_matrix)
     return coeffs_matrix,K_matrix
 
 def create_clean_directory(case_dir):

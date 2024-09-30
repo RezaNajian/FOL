@@ -21,8 +21,8 @@ class TestMechanicalPoly2D(unittest.TestCase):
         self.test_directory = os.path.join(os.path.dirname(os.path.abspath(__file__)), test_name)
         create_clean_directory(self.test_directory)
         self.fe_mesh = create_2D_square_mesh(L=1,N=11)
-        bc_dict = {"Ux":{"left":0.0,"right":0.1},
-                   "Uy":{"left":0.0,"right":0.1}}
+        bc_dict = {"Ux":{"left":0.0,"right":0.02},
+                   "Uy":{"left":0.0,"right":0.02}}
         
         material_dict = {"young_modulus":1,"poisson_ratio":0.3}
         self.mechanical_loss = MechanicalLoss2D("mechanical_loss_2d",loss_settings={"dirichlet_bc_dict":bc_dict,
@@ -44,7 +44,7 @@ class TestMechanicalPoly2D(unittest.TestCase):
         self.fol.Initialize()
         self.fe_solver.Initialize()
 
-        self.coeffs_matrix,self.K_matrix = create_random_voronoi_samples(self.voronoi_control,1)
+        self.coeffs_matrix,self.K_matrix = create_random_voronoi_samples(self.voronoi_control,2)
 
     def test_compute(self):
 
@@ -53,7 +53,7 @@ class TestMechanicalPoly2D(unittest.TestCase):
         UV_FOL = np.array(self.fol.Predict(self.coeffs_matrix[-1,:].reshape(-1,1).T))
         UV_FEM = np.array(self.fe_solver.Solve(self.K_matrix[-1],np.zeros(UV_FOL.shape)))
         l2_error = 100 * np.linalg.norm(UV_FOL-UV_FEM,ord=2)/ np.linalg.norm(UV_FEM,ord=2)
-        self.assertLessEqual(l2_error, 10)
+        self.assertLessEqual(l2_error, 2)
         
         if self.debug_mode=="false":
             shutil.rmtree(self.test_directory)
