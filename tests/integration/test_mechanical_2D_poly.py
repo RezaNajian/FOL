@@ -25,29 +25,30 @@ class TestMechanicalPoly2D(unittest.TestCase):
         self.fe_model = FiniteElementModel("FE_model",self.model_info)
         self.mechanical_loss = MechanicalLoss2D("mechanical_loss_2d",self.fe_model,{"young_modulus":1,"poisson_ratio":0.3,"num_gp":2})
         self.fe_solver = FiniteElementSolver("fe_solver",self.mechanical_loss)
-        voronoi_control_settings = {"numberof_seeds":4,"k_rangeof_values":[1]}
+        voronoi_control_settings = {"numberof_seeds":5,"k_rangeof_values":(0.1,1)}
         self.voronoi_control = VoronoiControl("fourier_control",voronoi_control_settings,self.fe_model)
         self.fol = FiniteElementOperatorLearning("fol_mechanical_loss_2d",self.voronoi_control,[self.mechanical_loss],[1],
                                                 "swish",working_directory=self.test_directory)
         
-        self.coeffs_matrix,self.K_matrix = create_random_voronoi_samples(self.voronoi_control,2)
+        # create a coefficient matrix incorporating [x coordinates, ... y coordinates, ... associate E values, ...]
+        self.coeffs_matrix = np.array([[0.25,0.25,0.5,0.75,0.75,0.25,0.75,0.5,0.25,0.75,0.1,0.5,1,0.5,0.1]])
+        self.K_matrix =  self.voronoi_control.ComputeBatchControlledVariables(self.coeffs_matrix)
 
     def test_compute(self):
         self.fol.Initialize()
-        self.fol.Train(loss_functions_weights=[1],X_train=self.coeffs_matrix[-1].reshape(-1,1).T,batch_size=1,num_epochs=200,
+        self.fol.Train(loss_functions_weights=[1],X_train=self.coeffs_matrix.reshape(-1,1).T,batch_size=1,num_epochs=200,
                        learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",
-                       relative_error=1e-12,absolute_error=1e-12)
-        UV_FOL = np.array(self.fol.Predict(self.coeffs_matrix[-1].reshape(-1,1).T))
-        UV_FEM = np.array(self.fe_solver.SingleSolve(self.K_matrix[-1],np.zeros(UV_FOL.shape)))
+                       relative_error=1e-15,absolute_error=1e-15)
+        UV_FOL = np.array(self.fol.Predict(self.coeffs_matrix.reshape(-1,1).T))
+        UV_FEM = np.array(self.fe_solver.SingleSolve(self.K_matrix,np.zeros(UV_FOL.shape)))
         l2_error = 100 * np.linalg.norm(UV_FOL-UV_FEM,ord=2)/ np.linalg.norm(UV_FEM,ord=2)
         self.assertLessEqual(l2_error, 1)
-        
 
         if self.debug_mode=="false":
             shutil.rmtree(self.test_directory)
         else:
-            plot_mesh_vec_data(1,[self.K_matrix[-1,:],UV_FOL[0::2],UV_FOL[1::2]],["K","U","V"],file_name=os.path.join(self.test_directory,"FOL-KUV-dist.png"))
-            plot_mesh_vec_data(1,[self.K_matrix[-1,:],UV_FEM[0::2],UV_FEM[1::2]],["K","U","V"],file_name=os.path.join(self.test_directory,"FEM-KUV-dist.png"))
+            plot_mesh_vec_data(1,[self.K_matrix,UV_FOL[0::2],UV_FOL[1::2]],["K","U","V"],file_name=os.path.join(self.test_directory,"FOL-KUV-dist.png"))
+            plot_mesh_vec_data(1,[self.K_matrix,UV_FEM[0::2],UV_FEM[1::2]],["K","U","V"],file_name=os.path.join(self.test_directory,"FEM-KUV-dist.png"))
 
 if __name__ == '__main__':
     unittest.main()

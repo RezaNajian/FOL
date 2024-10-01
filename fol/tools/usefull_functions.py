@@ -477,7 +477,7 @@ def create_clean_directory(case_dir):
     # Create the new directory
     os.makedirs(case_dir)
 
-def plot_mesh_vec_data_paper_temp(vectors_list:list, plot_name:str="plot",dir:str="U"):
+def plot_mesh_res(vectors_list:list, file_name:str="plot",dir:str="U"):
     fontsize = 16
     fig, axs = plt.subplots(2, 4, figsize=(20, 8))  # Adjusted to 4 columns
 
@@ -515,13 +515,15 @@ def plot_mesh_vec_data_paper_temp(vectors_list:list, plot_name:str="plot",dir:st
     cbar.ax.tick_params(length=5, width=1)
 
     # Zoomed-in region
-    zoom_region = data.reshape(N, N)[20:40, 20:40]
+    zoomed_min = int(0.2*N)
+    zoomed_max = int(0.4*N)
+    zoom_region = data.reshape(N, N)[zoomed_min:zoomed_max, zoomed_min:zoomed_max]
     im = axs[0, 2].imshow(zoom_region, cmap='bone', aspect='equal')
     axs[0, 2].set_xticks([])
     axs[0, 2].set_yticks([])
     axs[0, 2].set_xticklabels([])  # Remove text on x-axis
     axs[0, 2].set_yticklabels([])  # Remove text on y-axis
-    axs[0, 2].set_title('Zoomed-in: $x \in [0.4, 0.6], y \in [0.2, 0.6]$', fontsize=fontsize)
+    axs[0, 2].set_title(f'Zoomed-in: $x \in [{zoomed_min/N}, {zoomed_max/N}], y \in [{zoomed_min/N}, {zoomed_max/N}]$', fontsize=fontsize)
     cbar = fig.colorbar(im, ax=axs[0, 2], pad=0.02, shrink=0.7)
     cbar.ax.tick_params(labelsize=fontsize)
     cbar.ax.yaxis.labelpad = 5
@@ -597,14 +599,11 @@ def plot_mesh_vec_data_paper_temp(vectors_list:list, plot_name:str="plot",dir:st
     plt.tight_layout()
 
     # Save the figure in multiple formats
-    plt.savefig(plot_name+'.png', dpi=300)
+    plt.savefig(file_name+'.png', dpi=300)
     # plt.savefig(plot_name+'.pdf')
 
-    plt.show()
 
-
-
-def plot_mesh_vec_grad_data_mechanics(vectors_list:list, plot_name:str="plot", loss_settings:dict={}):
+def plot_mesh_grad_res_mechanics(vectors_list:list, file_name:str="plot", loss_settings:dict={}):
     fontsize = 16
     fig, axs = plt.subplots(2, 4, figsize=(20, 8))
 
@@ -713,16 +712,16 @@ def plot_mesh_vec_grad_data_mechanics(vectors_list:list, plot_name:str="plot", l
     axs[1, 3].legend()
 
     # Save cross-section data to a text file
-    with open('cross_section_data.txt', 'w') as f:
+    file_dir = os.path.join(os.path.dirname(os.path.abspath(file_name)),'cross_section_data.txt')
+    with open(file_dir, 'w') as f:
         f.write('x, stress_x_fem, stress_x_fol, stress_y_fem, stress_y_fol, stress_xy_fem, stress_xy_fol\n')
         for i in range(N):
             f.write(f'{i*dx}, {stress_x_cross_fem[i]}, {stress_x_cross_fol[i]}, {stress_y_cross_fem[i]}, {stress_y_cross_fol[i]}\n')
 
 
     plt.tight_layout()
-    plt.savefig(plot_name+'.png', dpi=300)
+    plt.savefig(file_name+'.png', dpi=300)
     # plt.savefig(plot_name+'.pdf')
-    plt.show()
 
 def TensorToVoigt(tensor):
     if tensor.size == 4:
