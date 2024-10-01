@@ -104,12 +104,12 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
             
             # Plot displacement field U
             vectors_list = [pc_test_nodal_value_matrix[eval_id],FOL_UV[::2],FE_UV[::2],absolute_error[::2]]
-            plot_mesh_vec_data_paper_temp(vectors_list,f"U_test_sample_{eval_id}","U")
+            plot_mesh_res(vectors_list,file_name=os.path.join(case_dir,f"U_test_sample_{eval_id}"),dir="U")
             # Plot displacement field V
             vectors_list = [pc_test_nodal_value_matrix[eval_id],FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]]
-            plot_mesh_vec_data_paper_temp(vectors_list,f"V_test_sample_{eval_id}","V")
+            plot_mesh_res(vectors_list,file_name=os.path.join(case_dir,f"V_test_sample_{eval_id}"),dir="V")
             # Plot Stress field
-            plot_mesh_vec_grad_data_mechanics(vectors_list, f"stress_test_sample_{eval_id}", loss_settings)
+            plot_mesh_grad_res_mechanics(vectors_list, os.path.join(case_dir,f"stress_test_sample_{eval_id}"), loss_settings)
 
 
         train_eval_ids = [0,1]
@@ -121,12 +121,12 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
             
             # Plot displacement field U
             vectors_list = [pc_train_nodal_value_matrix[eval_id],FOL_UV[::2],FE_UV[::2],absolute_error[::2]]
-            plot_mesh_vec_data_paper_temp(vectors_list,f"U_train_sample_{eval_id}","U")
+            plot_mesh_res(vectors_list,file_name=os.path.join(case_dir,f"U_train_sample_{eval_id}"),dir="U")
             # Plot displacement field V
             vectors_list = [pc_train_nodal_value_matrix[eval_id],FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]]
-            plot_mesh_vec_data_paper_temp(vectors_list,f"V_train_sample_{eval_id}","V")
+            plot_mesh_res(vectors_list,file_name=os.path.join(case_dir,f"V_train_sample_{eval_id}"),dir="V")
             # Plot Stress field
-            plot_mesh_vec_grad_data_mechanics(vectors_list,f"stress_train_sample_{eval_id}", loss_settings)
+            plot_mesh_grad_res_mechanics(vectors_list, os.path.join(case_dir,f"stress_train_sample_{eval_id}"), loss_settings)
 
     else:
         FOL_UV = fol.Predict(pc_train_mat)
@@ -136,20 +136,20 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
         
         # Plot displacement field U
         vectors_list = [pc_train_nodal_value_matrix,FOL_UV[::2],FE_UV[::2],absolute_error[::2]]
-        plot_mesh_vec_data_paper_temp(vectors_list,"U_train","U")
+        plot_mesh_res(vectors_list,os.path.join(case_dir,"U_train"),"U")
         # Plot displacement field V
         vectors_list = [pc_train_nodal_value_matrix,FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]]
-        plot_mesh_vec_data_paper_temp(vectors_list,"V_train","V")
+        plot_mesh_res(vectors_list,os.path.join(case_dir,"V_train"),"V")
         # Plot Stress field
-        plot_mesh_vec_grad_data_mechanics(vectors_list,"stress_train", loss_settings)
+        plot_mesh_grad_res_mechanics(vectors_list,os.path.join(case_dir,"stress_train"), loss_settings)
 
     if clean_dir:
         shutil.rmtree(case_dir)
 
 if __name__ == "__main__":
     # Initialize default values
-    fol_num_epochs = 2000
-    solve_FE = True
+    fol_num_epochs = 10
+    solve_FE = False
     clean_dir = False
 
     # Parse the command-line arguments
