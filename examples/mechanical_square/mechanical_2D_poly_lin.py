@@ -2,9 +2,8 @@ import sys
 import os
 
 import numpy as np
-from fol.computational_models.fe_model import FiniteElementModel
 from fol.loss_functions.mechanical_2D_fe_quad import MechanicalLoss2D
-from fol.solvers.fe_solver import FiniteElementSolver
+from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.controls.voronoi_control import VoronoiControl
 from fol.deep_neural_networks.fe_operator_learning import FiniteElementOperatorLearning
 from fol.tools.usefull_functions import *
@@ -19,23 +18,33 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
     
     # problem setup
-    model_settings = {"L":1,
-                    "N":20,
-                    "Ux_left":0.0,"Ux_right":0.05,
-                    "Uy_left":0.0,"Uy_right":0.05}
+    model_settings = {"L":1,"N":20,
+                      "Ux_left":0.0,
+                      "Ux_right":0.05,
+                      "Uy_left":0.0,
+                      "Uy_right":0.05}
 
     # creation of the model
-    model_info = create_2D_square_model_info_mechanical(**model_settings)
+    fe_mesh = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"])
 
-    # creation of the objects
-    fe_model = FiniteElementModel("FE_model",model_info)
-    loss_settings = {"young_modulus":1,"poisson_ratio":0.3,"num_gp":2}
-    mechanical_loss_2d = MechanicalLoss2D("mechanical_loss_2d",fe_model,loss_settings)
+    # create fe-based loss function
+    bc_dict = {"Ux":{"left":model_settings["Ux_left"],"right":model_settings["Ux_right"]},
+               "Uy":{"left":model_settings["Uy_left"],"right":model_settings["Uy_right"]}}
+    
+    material_dict = {"young_modulus":1,"poisson_ratio":0.3}
+    mechanical_loss_2d = MechanicalLoss2D("mechanical_loss_2d",loss_settings={"dirichlet_bc_dict":bc_dict,
+                                                                              "num_gp":2,
+                                                                              "material_dict":material_dict},
+                                                                              fe_mesh=fe_mesh)    
 
     # k_rangeof_values in the following could be a certain amount of values from a list instead of a tuple
     # voronoi_control_settings = {"numberof_seeds":5,"k_rangeof_values":list(0.01*np.arange(10,100,10))}
     voronoi_control_settings = {"numberof_seeds":5,"k_rangeof_values":(0.1,1)}
-    voronoi_control = VoronoiControl("first_voronoi_control",voronoi_control_settings,fe_model)
+    voronoi_control = VoronoiControl("first_voronoi_control",voronoi_control_settings,fe_mesh)
+
+    fe_mesh.Initialize()
+    mechanical_loss_2d.Initialize()
+    voronoi_control.Initialize()
 
     # create some random coefficients & K for training
     create_random_coefficients = False
@@ -80,13 +89,13 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
         pc_train_mat = coeffs_matrix[on_the_fly_id].reshape(-1,1).T
         pc_train_nodal_value_matrix = K_matrix[on_the_fly_id]
 
-    first_fe_solver = FiniteElementSolver("first_fe_solver",mechanical_loss_2d)
+    linear_fe_solver = FiniteElementLinearResidualBasedSolver("linear_fe_solver",mechanical_loss_2d)
+    linear_fe_solver.Initialize()
 
     # now we need to create, initialize and train fol
     fol = FiniteElementOperatorLearning("first_fol",voronoi_control,[mechanical_loss_2d],hidden_layer,
                                         "swish",load_NN_params=False,working_directory=working_directory_name)
     fol.Initialize()
-    start_time = time.process_time()
     fol.Train(loss_functions_weights=[1],X_train=pc_train_mat,batch_size=fol_batch_size,num_epochs=fol_num_epochs,
                 learning_rate=fol_learning_rate,optimizer="adam",convergence_criterion="total_loss",absolute_error=1e-15,
                 relative_error=1e-15,NN_params_save_file_name="NN_params_"+working_directory_name)
@@ -98,8 +107,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
         test_eval_ids = [0,1]
         for eval_id in test_eval_ids:
             FOL_UV = UV_test[eval_id]
-            FE_UV = np.array(first_fe_solver.SingleSolve(pc_test_nodal_value_matrix[eval_id],np.zeros(2*fe_model.GetNumberOfNodes())))  
-            print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
+            FE_UV = np.array(linear_fe_solver.Solve(pc_test_nodal_value_matrix[eval_id],np.zeros(2*fe_mesh.GetNumberOfNodes())))  
             absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
             
             # Plot displacement field U
@@ -109,14 +117,13 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
             vectors_list = [pc_test_nodal_value_matrix[eval_id],FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]]
             plot_mesh_vec_data_paper_temp(vectors_list,f"V_test_sample_{eval_id}","V")
             # Plot Stress field
-            plot_mesh_vec_grad_data_mechanics(vectors_list, f"stress_test_sample_{eval_id}", loss_settings)
+            plot_mesh_vec_grad_data_mechanics(vectors_list, f"stress_test_sample_{eval_id}", material_dict)
 
 
         train_eval_ids = [0,1]
         for eval_id in train_eval_ids:
             FOL_UV = UV_train[eval_id]
-            FE_UV = np.array(first_fe_solver.SingleSolve(pc_train_nodal_value_matrix[eval_id],np.zeros(2*fe_model.GetNumberOfNodes())))
-            print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
+            FE_UV = np.array(linear_fe_solver.Solve(pc_train_nodal_value_matrix[eval_id],np.zeros(2*fe_mesh.GetNumberOfNodes())))
             absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
             
             # Plot displacement field U
@@ -126,12 +133,11 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
             vectors_list = [pc_train_nodal_value_matrix[eval_id],FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]]
             plot_mesh_vec_data_paper_temp(vectors_list,f"V_train_sample_{eval_id}","V")
             # Plot Stress field
-            plot_mesh_vec_grad_data_mechanics(vectors_list,f"stress_train_sample_{eval_id}", loss_settings)
+            plot_mesh_vec_grad_data_mechanics(vectors_list,f"stress_train_sample_{eval_id}", material_dict)
 
     else:
         FOL_UV = fol.Predict(pc_train_mat)
-        FE_UV = np.array(first_fe_solver.SingleSolve(pc_train_nodal_value_matrix,np.zeros(2*fe_model.GetNumberOfNodes())))
-        print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
+        FE_UV = np.array(linear_fe_solver.Solve(pc_train_nodal_value_matrix,np.zeros(2*fe_mesh.GetNumberOfNodes())))
         absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
         
         # Plot displacement field U
@@ -141,7 +147,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
         vectors_list = [pc_train_nodal_value_matrix,FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]]
         plot_mesh_vec_data_paper_temp(vectors_list,"V_train","V")
         # Plot Stress field
-        plot_mesh_vec_grad_data_mechanics(vectors_list,"stress_train", loss_settings)
+        plot_mesh_vec_grad_data_mechanics(vectors_list,"stress_train", material_dict)
 
     if clean_dir:
         shutil.rmtree(case_dir)

@@ -7,6 +7,7 @@ import gmsh
 import meshio
 import os
 import shutil
+from fol.mesh_input_output.mesh import Mesh
 
 def plot_mesh_vec_data(L, vectors_list, subplot_titles=None, fig_title=None, cmap='viridis',
                        block_bool=False, colour_bar=True, colour_bar_name=None,
@@ -182,7 +183,10 @@ def box_mesh(Nx, Ny, Nz, Lx, Ly, Lz, case_dir):
 
     return meshio_obj
 
-def create_3D_box_model_info_thermal(Nx,Ny,Nz,Lx,Ly,Lz,T_left,T_right,case_dir):
+def create_3D_box_mesh(Nx,Ny,Nz,Lx,Ly,Lz,case_dir):
+
+    # create empty fe mesh object
+    fe_mesh = Mesh("box_io","box.")
 
     settings = box_mesh(Nx,Ny,Nz,Lx,Ly,Lz,case_dir)
     X = settings.points[:,0]
@@ -202,175 +206,26 @@ def create_3D_box_model_info_thermal(Nx,Ny,Nz,Lx,Ly,Lz,T_left,T_right,case_dir):
 
     left_boundary_node_ids = jnp.array(left_boundary_node_ids)
     right_boundary_node_ids = jnp.array(right_boundary_node_ids)
-    none_boundary_node_ids = jnp.array(none_boundary_node_ids)
 
-    left_boundary_nodes_values = T_left * jnp.ones(left_boundary_node_ids.shape)
-    right_boundary_nodes_values = T_right * jnp.ones(right_boundary_node_ids.shape)
+    fe_mesh.node_ids = jnp.arange(Y.shape[-1])
+    fe_mesh.nodes_coordinates = jnp.stack((X,Y,Z), axis=1)
 
-    boundary_nodes = jnp.concatenate([left_boundary_node_ids, right_boundary_node_ids])
-    boundary_values = jnp.concatenate([left_boundary_nodes_values, right_boundary_nodes_values])
+    fe_mesh.elements_nodes = {"hexahedron":jnp.array(settings.cells_dict['hexahedron'])}
 
-    nodes_dict = {"nodes_ids":jnp.arange(Y.shape[-1]),"X":X,"Y":Y,"Z":Z}
-    elements_dict = {"elements_ids":jnp.arange(len(settings.cells_dict['hexahedron'])),
-                     "elements_nodes":jnp.array(settings.cells_dict['hexahedron'])}
-    dofs_dict = {"T":{"non_dirichlet_nodes_ids":none_boundary_node_ids,"dirichlet_nodes_ids":boundary_nodes,"dirichlet_nodes_dof_value":boundary_values}}
-    return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict},settings
-def create_3D_box_model_info_mechanical(model_settings,case_dir):
+    fe_mesh.node_sets = {"left":left_boundary_node_ids,
+                         "right":right_boundary_node_ids}
+    
+    fe_mesh.mesh_io = meshio.Mesh(fe_mesh.nodes_coordinates,fe_mesh.elements_nodes)
 
-    settings = box_mesh(model_settings["Nx"],model_settings["Ny"],
-                        model_settings["Nz"],model_settings["Lx"],
-                        model_settings["Ly"],model_settings["Lz"],case_dir)
-    X = settings.points[:,0]
-    Y = settings.points[:,1]
-    Z = settings.points[:,2]
+    fe_mesh.is_initialized = True
 
-    left_boundary_node_ids = []
-    left_non_boundary_node_ids = []
-    right_boundary_node_ids = []
-    right_non_boundary_node_ids = []
-    left_right_non_boundary_node_ids = []
-    for node_id,node_corrds in enumerate(settings.points):
-        if np.isclose(node_corrds[0], 0., atol=1e-5):
-            left_boundary_node_ids.append(node_id)
-        else:
-            left_non_boundary_node_ids.append(node_id)
+    return fe_mesh
 
-        if np.isclose(node_corrds[0], model_settings["Lx"], atol=1e-5):
-            right_boundary_node_ids.append(node_id)
-        else:
-            right_non_boundary_node_ids.append(node_id)
+def create_2D_square_mesh(L,N):
 
-        if not np.isclose(node_corrds[0], 0., atol=1e-5):
-            if not np.isclose(node_corrds[0], model_settings["Lx"], atol=1e-5):
-                left_right_non_boundary_node_ids.append(node_id)
+    # create empty fe mesh object
+    fe_mesh = Mesh("square_io","square.")
 
-    dofs_dict = {"Ux":{"non_dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_dof_value":[]},
-                 "Uy":{"non_dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_dof_value":[]},
-                 "Uz":{"non_dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_dof_value":[]}}
-
-    for dof in ["Ux","Uy","Uz"]:
-        if model_settings[f"{dof}_left"] !="" and model_settings[f"{dof}_right"] !="":
-
-            dofs_dict[dof]["non_dirichlet_nodes_ids"].extend(left_right_non_boundary_node_ids)
-
-            dofs_dict[dof]["dirichlet_nodes_ids"].extend(left_boundary_node_ids)
-            dof_values = [model_settings[f"{dof}_left"]] * len(left_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values)
-
-            dofs_dict[dof]["dirichlet_nodes_ids"].extend(right_boundary_node_ids)
-            dof_values = [model_settings[f"{dof}_right"]] * len(right_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values)
-
-        elif model_settings[f"{dof}_right"] !="":
-            dofs_dict[dof]["non_dirichlet_nodes_ids"].extend(right_non_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_ids"].extend(right_boundary_node_ids)
-            dof_values = [model_settings[f"{dof}_right"]] * len(right_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values)  
-
-        elif model_settings[f"{dof}_left"] !="":
-            dofs_dict[dof]["non_dirichlet_nodes_ids"].extend(left_non_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_ids"].extend(left_boundary_node_ids)
-            dof_values = [model_settings[f"{dof}_left"]] * len(left_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values) 
-
-        dofs_dict[dof]["dirichlet_nodes_dof_value"] = np.array(dofs_dict[dof]["dirichlet_nodes_dof_value"])
-        dofs_dict[dof]["non_dirichlet_nodes_ids"] = np.array(dofs_dict[dof]["non_dirichlet_nodes_ids"])
-        dofs_dict[dof]["dirichlet_nodes_ids"] = np.array(dofs_dict[dof]["dirichlet_nodes_ids"])
-
-
-    nodes_dict = {"nodes_ids":jnp.arange(Y.shape[-1]),"X":X,"Y":Y,"Z":Z}
-    elements_dict = {"elements_ids":jnp.arange(len(settings.cells_dict['hexahedron'])),
-                     "elements_nodes":jnp.array(settings.cells_dict['hexahedron'])}
-
-    return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict},settings
-
-
-def import_box_model_info_mechanical(file_name,case_dir,model_settings):
-
-    mesh = meshio.read(os.path.join(case_dir, file_name))
-
-    points = mesh.points # (num_total_nodes, dim)
-    cells =  mesh.cells_dict['tetra'] # (num_cells, num_nodes)
-    meshio_obj = meshio.Mesh(points=points, cells={'tetra': cells})
-
-    X = meshio_obj.points[:,0]
-    Y = meshio_obj.points[:,1]
-    Z = meshio_obj.points[:,2]
-
-    left_boundary_node_ids = []
-    left_non_boundary_node_ids = []
-    right_boundary_node_ids = []
-    right_non_boundary_node_ids = []
-    left_right_non_boundary_node_ids = []
-    for node_id,node_corrds in enumerate(meshio_obj.points):
-        if np.isclose(node_corrds[0], 0., atol=1e-5):
-            left_boundary_node_ids.append(node_id)
-        else:
-            left_non_boundary_node_ids.append(node_id)
-
-        if np.isclose(node_corrds[0], model_settings["Lx"], atol=1e-5):
-            right_boundary_node_ids.append(node_id)
-        else:
-            right_non_boundary_node_ids.append(node_id)
-
-        if not np.isclose(node_corrds[0], 0., atol=1e-5):
-            if not np.isclose(node_corrds[0], model_settings["Lx"], atol=1e-5):
-                left_right_non_boundary_node_ids.append(node_id)
-
-    dofs_dict = {"Ux":{"non_dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_dof_value":[]},
-                 "Uy":{"non_dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_dof_value":[]},
-                 "Uz":{"non_dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_dof_value":[]}}
-
-    for dof in ["Ux","Uy","Uz"]:
-        if model_settings[f"{dof}_left"] !="" and model_settings[f"{dof}_right"] !="":
-
-            dofs_dict[dof]["non_dirichlet_nodes_ids"].extend(left_right_non_boundary_node_ids)
-
-            dofs_dict[dof]["dirichlet_nodes_ids"].extend(left_boundary_node_ids)
-            dof_values = [model_settings[f"{dof}_left"]] * len(left_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values)
-
-            dofs_dict[dof]["dirichlet_nodes_ids"].extend(right_boundary_node_ids)
-            dof_values = [model_settings[f"{dof}_right"]] * len(right_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values)
-
-        elif model_settings[f"{dof}_right"] !="":
-            dofs_dict[dof]["non_dirichlet_nodes_ids"].extend(right_non_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_ids"].extend(right_boundary_node_ids)
-            dof_values = [model_settings[f"{dof}_right"]] * len(right_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values)  
-
-        elif model_settings[f"{dof}_left"] !="":
-            dofs_dict[dof]["non_dirichlet_nodes_ids"].extend(left_non_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_ids"].extend(left_boundary_node_ids)
-            dof_values = [model_settings[f"{dof}_left"]] * len(left_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values) 
-
-        dofs_dict[dof]["dirichlet_nodes_dof_value"] = np.array(dofs_dict[dof]["dirichlet_nodes_dof_value"])
-        dofs_dict[dof]["non_dirichlet_nodes_ids"] = np.array(dofs_dict[dof]["non_dirichlet_nodes_ids"])
-        dofs_dict[dof]["dirichlet_nodes_ids"] = np.array(dofs_dict[dof]["dirichlet_nodes_ids"])
-
-
-    nodes_dict = {"nodes_ids":jnp.arange(Y.shape[-1]),"X":X,"Y":Y,"Z":Z}
-    elements_dict = {"elements_ids":jnp.arange(len(meshio_obj.cells_dict['tetra'])),
-                     "elements_nodes":jnp.array(meshio_obj.cells_dict['tetra'])}
-
-    return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict},meshio_obj
-
-
-def create_2D_square_model_info_mechanical(L,N,Ux_left,Ux_right,Uy_left,Uy_right):
     # FE init starts here
     Ne = N - 1  # Number of elements in each direction
     nx = Ne + 1  # Number of nodes in the x-direction
@@ -383,7 +238,9 @@ def create_2D_square_model_info_mechanical(L,N,Ux_left,Ux_right,Uy_left,Uy_right
     X = X.flatten()
     Y = Y.flatten()
     Z = jnp.zeros((Y.shape[-1]))
-    nodes_dict = {"nodes_ids":jnp.arange(Y.shape[-1]),"X":X,"Y":Y,"Z":Z}
+
+    fe_mesh.node_ids = jnp.arange(Y.shape[-1])
+    fe_mesh.nodes_coordinates = jnp.stack((X,Y,Z), axis=1)
 
     # Create a matrix to store element nodal information
     elements_nodes = jnp.zeros((ne, 4), dtype=int)
@@ -396,38 +253,20 @@ def create_2D_square_model_info_mechanical(L,N,Ux_left,Ux_right,Uy_left,Uy_right
             # Store element and node numbers in the matrix
             elements_nodes = elements_nodes.at[e].set(nodes) # Node numbers
 
-    element_ids = jnp.arange(0,elements_nodes.shape[0])
-    elements_dict = {"elements_ids":element_ids,"elements_nodes":elements_nodes}
+    fe_mesh.elements_nodes = {"quad":elements_nodes}
 
     # Identify boundary nodes on the left and right edges
     left_boundary_nodes = jnp.arange(0, ny * nx, nx)  # Nodes on the left boundary
     right_boundary_nodes = jnp.arange(nx - 1, ny * nx, nx)  # Nodes on the right boundary
 
-    left_ux_values = Ux_left * jnp.ones(left_boundary_nodes.shape)
-    right_ux_values = Ux_right * jnp.ones(right_boundary_nodes.shape)
-    ux_boundary_nodes = jnp.concatenate([left_boundary_nodes, right_boundary_nodes])
-    ux_boundary_values = jnp.concatenate([left_ux_values, right_ux_values])
-    ux_non_boundary_nodes = []
-    for i in range(N*N):
-        if not (jnp.any(ux_boundary_nodes == i)):
-            ux_non_boundary_nodes.append(i)
-    ux_non_boundary_nodes = jnp.array(ux_non_boundary_nodes)
-
-    dofs_dict = {"Ux":{"non_dirichlet_nodes_ids":ux_non_boundary_nodes,"dirichlet_nodes_ids":ux_boundary_nodes,"dirichlet_nodes_dof_value":ux_boundary_values}}
-
-    left_uy_values = Uy_left * jnp.ones(left_boundary_nodes.shape)
-    right_uy_values = Uy_right * jnp.ones(left_boundary_nodes.shape)
-    uy_boundary_nodes = jnp.concatenate([left_boundary_nodes, right_boundary_nodes])
-    uy_boundary_values = jnp.concatenate([left_uy_values, right_uy_values])
-    uy_non_boundary_nodes = []
-    for i in range(N*N):
-        if not (jnp.any(uy_boundary_nodes == i)):
-            uy_non_boundary_nodes.append(i)
-    uy_non_boundary_nodes = jnp.array(uy_non_boundary_nodes)
-
-    dofs_dict["Uy"] = {"non_dirichlet_nodes_ids":uy_non_boundary_nodes,"dirichlet_nodes_ids":uy_boundary_nodes,"dirichlet_nodes_dof_value":uy_boundary_values}
+    fe_mesh.node_sets = {"left":left_boundary_nodes,
+                         "right":right_boundary_nodes}
     
-    return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict}
+    fe_mesh.mesh_io = meshio.Mesh(fe_mesh.nodes_coordinates,fe_mesh.elements_nodes)
+
+    fe_mesh.is_initialized = True
+
+    return fe_mesh
 
 def create_random_fourier_samples(fourier_control,numberof_sample):
     N = int(fourier_control.GetNumberOfControlledVariables()**0.5)
@@ -741,7 +580,253 @@ def diad_special(A,B,dim):
     C = jnp.zeros((dim, dim, dim, dim))
     C = 0.5*(jnp.einsum('ik,jl->ijkl',A,B) + jnp.einsum('il,jk->ijkl',A,B))
     return C
-    
+
+def plot_mesh_vec_data_paper_temp(vectors_list:list, plot_name:str="plot",dir:str="U"):
+    fontsize = 16
+    fig, axs = plt.subplots(2, 4, figsize=(20, 8))  # Adjusted to 4 columns
+
+    # Plot the first entity in the first row
+    data = vectors_list[0]
+    N = int((data.reshape(-1, 1).shape[0]) ** 0.5)
+    im = axs[0, 0].imshow(data.reshape(N, N), cmap='viridis', aspect='equal')
+    axs[0, 0].set_xticks([])
+    axs[0, 0].set_yticks([])
+    axs[0, 0].set_title('Elasticity Morph.', fontsize=fontsize)
+    cbar = fig.colorbar(im, ax=axs[0, 0], pad=0.02, shrink=0.7)
+    cbar.ax.tick_params(labelsize=fontsize)
+    cbar.ax.yaxis.labelpad = 5
+    cbar.ax.tick_params(length=5, width=1)
+
+    # Plot the same entity with mesh grid in the first row, second column
+    im = axs[0, 1].imshow(data.reshape(N, N), cmap='bone', aspect='equal')
+    axs[0, 1].set_xticks([])
+    axs[0, 1].set_yticks([])
+    axs[0, 1].set_xticklabels([])  # Remove text on x-axis
+    axs[0, 1].set_yticklabels([])  # Remove text on y-axis
+    axs[0, 1].set_title(f'Mesh Grid: {N} x {N}', fontsize=fontsize)
+    axs[0, 1].grid(True, color='red', linestyle='-', linewidth=1)  # Adding solid grid lines with red color
+    axs[0, 1].xaxis.grid(True)
+    axs[0, 1].yaxis.grid(True)
+
+    x_ticks = np.linspace(0, N, N)
+    y_ticks = np.linspace(0, N, N)
+    axs[0, 1].set_xticks(x_ticks)
+    axs[0, 1].set_yticks(y_ticks)
+
+    cbar = fig.colorbar(im, ax=axs[0, 1], pad=0.02, shrink=0.7)
+    cbar.ax.tick_params(labelsize=fontsize)
+    cbar.ax.yaxis.labelpad = 5
+    cbar.ax.tick_params(length=5, width=1)
+
+    # Zoomed-in region
+    zoom_region = data.reshape(N, N)[20:40, 20:40]
+    im = axs[0, 2].imshow(zoom_region, cmap='bone', aspect='equal')
+    axs[0, 2].set_xticks([])
+    axs[0, 2].set_yticks([])
+    axs[0, 2].set_xticklabels([])  # Remove text on x-axis
+    axs[0, 2].set_yticklabels([])  # Remove text on y-axis
+    axs[0, 2].set_title('Zoomed-in: $x \in [0.4, 0.6], y \in [0.2, 0.6]$', fontsize=fontsize)
+    cbar = fig.colorbar(im, ax=axs[0, 2], pad=0.02, shrink=0.7)
+    cbar.ax.tick_params(labelsize=fontsize)
+    cbar.ax.yaxis.labelpad = 5
+    cbar.ax.tick_params(length=5, width=1)
+
+    # Plot the mesh grid
+    axs[0, 2].xaxis.set_major_locator(plt.LinearLocator(21))
+    axs[0, 2].yaxis.set_major_locator(plt.LinearLocator(21))
+    axs[0, 2].grid(color='red', linestyle='-', linewidth=2)
+
+    # Plot cross-sections along x-axis at y=0.5 for U (FOL and FEM) in the second row, fourth column
+    y_idx = int(N * 0.5)
+    U1 = vectors_list[0].reshape(N, N)
+    axs[0, 3].plot(np.linspace(0, 1, N), U1[y_idx, :], label='Elasticity', color='black')
+    axs[0, 3].set_xlim([0, 1])
+    #axs[0, 3].set_ylim([min(U1[y_idx, :].min()), max(U1[y_idx, :].max())])
+    axs[0, 3].set_aspect(aspect='auto')
+    axs[0, 3].set_title('Cross-section of E at y=0.5', fontsize=fontsize)
+    axs[0, 3].legend(fontsize=fontsize)
+    axs[0, 3].grid(True)
+    axs[0, 3].set_xlabel('x', fontsize=fontsize)
+    axs[0, 3].set_ylabel('E', fontsize=fontsize)
+
+
+    # Plot the second entity in the second row
+    data = vectors_list[1]
+    im = axs[1, 0].imshow(data.reshape(N, N), cmap='coolwarm', aspect='equal')
+    axs[1, 0].set_xticks([])
+    axs[1, 0].set_yticks([])
+    axs[1, 0].set_title(f'${dir}$, FOL', fontsize=fontsize)
+    cbar = fig.colorbar(im, ax=axs[1, 0], pad=0.02, shrink=0.7)
+    cbar.ax.tick_params(labelsize=fontsize)
+    cbar.ax.yaxis.labelpad = 5
+    cbar.ax.tick_params(length=5, width=1)
+
+    # Plot the fourth entity in the second row
+    data = vectors_list[2]
+    im = axs[1, 1].imshow(data.reshape(N, N), cmap='coolwarm', aspect='equal')
+    axs[1, 1].set_xticks([])
+    axs[1, 1].set_yticks([])
+    axs[1, 1].set_title(f'${dir}$, FEM', fontsize=fontsize)
+    cbar = fig.colorbar(im, ax=axs[1, 1], pad=0.02, shrink=0.7)
+    cbar.ax.tick_params(labelsize=fontsize)
+    cbar.ax.yaxis.labelpad = 5
+    cbar.ax.tick_params(length=5, width=1)
+
+    # Plot the absolute difference between vectors_list[1] and vectors_list[3] in the third row, second column
+    diff_data_1 = np.abs(vectors_list[1] - vectors_list[2])
+    im = axs[1, 2].imshow(diff_data_1.reshape(N, N), cmap='coolwarm', aspect='equal')
+    axs[1, 2].set_xticks([])
+    axs[1, 2].set_yticks([])
+    axs[1, 2].set_title(f'Abs. Difference ${dir}$', fontsize=fontsize)
+    cbar = fig.colorbar(im, ax=axs[1, 2], pad=0.02, shrink=0.7)
+    cbar.ax.tick_params(labelsize=fontsize)
+    cbar.ax.yaxis.labelpad = 5
+    cbar.ax.tick_params(length=5, width=1)
+
+    # Plot cross-sections along x-axis at y=0.5 for U (FOL and FEM) in the second row, fourth column
+    y_idx = int(N * 0.5)
+    U1 = vectors_list[1].reshape(N, N)
+    U2 = vectors_list[2].reshape(N, N)
+    axs[1, 3].plot(np.linspace(0, 1, N), U1[y_idx, :], label=f'{dir} FOL', color='blue')
+    axs[1, 3].plot(np.linspace(0, 1, N), U2[y_idx, :], label=f'{dir} FEM', color='red')
+    axs[1, 3].set_xlim([0, 1])
+    axs[1, 3].set_ylim([min(U1[y_idx, :].min(), U2[y_idx, :].min()), max(U1[y_idx, :].max(), U2[y_idx, :].max())])
+    axs[1, 3].set_aspect(aspect='auto')
+    axs[1, 3].set_title(f'Cross-section of {dir} at y=0.5', fontsize=fontsize)
+    axs[1, 3].legend(fontsize=fontsize)
+    axs[1, 3].grid(True)
+    axs[1, 3].set_xlabel('x', fontsize=fontsize)
+    axs[1, 3].set_ylabel(f'{dir}', fontsize=fontsize)
+
+    plt.tight_layout()
+
+    # Save the figure in multiple formats
+    plt.savefig(plot_name+'.png', dpi=300)
+    # plt.savefig(plot_name+'.pdf')
+
+    plt.show()
+
+def plot_mesh_vec_grad_data_mechanics(vectors_list:list, plot_name:str="plot", loss_settings:dict={}):
+    fontsize = 16
+    fig, axs = plt.subplots(2, 4, figsize=(20, 8))
+
+    data = vectors_list[0]
+    L = 1
+    N = int((data.reshape(-1, 1).shape[0])**0.5)
+    nu = loss_settings["poisson_ratio"]
+    e = loss_settings["young_modulus"]
+    mu = e / (2*(1+nu))
+    lambdaa = nu * e / ((1+nu)*(1-2*nu))
+
+    dx = L / (N - 1)
+
+    U_fem = vectors_list[2]
+    domain_map_matrix = vectors_list[0].reshape(N, N)
+    dU_dx_fem = np.gradient(U_fem.reshape(N, N), dx, axis=1)
+    dU_dy_fem = np.gradient(U_fem.reshape(N, N), dx, axis=0)
+    stress_xx_fem = domain_map_matrix * ((lambdaa + 2*mu) * dU_dx_fem + lambdaa * dU_dy_fem)
+    stress_yy_fem = domain_map_matrix * (lambdaa * dU_dx_fem + (lambdaa + 2*mu) * dU_dy_fem)
+
+    im = axs[0, 1].imshow(stress_xx_fem, cmap='plasma')
+    axs[0, 1].set_xticks([])
+    axs[0, 1].set_yticks([])
+    axs[0, 1].set_title('$\sigma_{xx}$, FEM', fontsize=fontsize)
+    cbar = fig.colorbar(im, ax=axs[0, 0], pad=0.02, shrink=0.7)
+    cbar.ax.tick_params(labelsize=fontsize)
+    cbar.ax.yaxis.labelpad = 5
+    cbar.ax.tick_params(length=5, width=1)
+
+    im = axs[1, 1].imshow(stress_yy_fem, cmap='plasma')
+    axs[1, 1].set_xticks([])
+    axs[1, 1].set_yticks([])
+    axs[1, 1].set_title('$\sigma_{yy}$, FEM', fontsize=fontsize)
+    cbar = fig.colorbar(im, ax=axs[1, 0], pad=0.02, shrink=0.7)
+    cbar.ax.tick_params(labelsize=fontsize)
+    cbar.ax.yaxis.labelpad = 5
+    cbar.ax.tick_params(length=5, width=1)
+
+
+    U_fol = vectors_list[1]
+    dU_dx_fol = np.gradient(U_fol.reshape(N, N), dx, axis=1)
+    dU_dy_fol = np.gradient(U_fol.reshape(N, N), dx, axis=0)
+    stress_xx_fol = domain_map_matrix * ((lambdaa + 2*mu) * dU_dx_fol + lambdaa * dU_dy_fol)
+    stress_yy_fol = domain_map_matrix * (lambdaa * dU_dx_fol + (lambdaa + 2*mu) * dU_dy_fol)
+
+    min_v = np.min(stress_xx_fem)
+    max_v = np.max(stress_xx_fem)
+    im = axs[0, 0].imshow(stress_xx_fol, cmap='plasma', vmin=min_v, vmax=max_v)
+    axs[0, 0].set_xticks([])
+    axs[0, 0].set_yticks([])
+    axs[0, 0].set_title('$\sigma_{xx}$, FOL', fontsize=fontsize)
+    cbar = fig.colorbar(im, ax=axs[0, 1], pad=0.02, shrink=0.7)
+    cbar.ax.tick_params(labelsize=fontsize)
+    cbar.ax.yaxis.labelpad = 5
+    cbar.ax.tick_params(length=5, width=1)
+
+    min_v = np.min(stress_yy_fem)
+    max_v = np.max(stress_yy_fem)
+    im = axs[1, 0].imshow(stress_yy_fol, cmap='plasma', vmin=min_v, vmax=max_v)
+    axs[1, 0].set_xticks([])
+    axs[1, 0].set_yticks([])
+    axs[1, 0].set_title('$\sigma_{yy}$, FOL', fontsize=fontsize)
+    cbar = fig.colorbar(im, ax=axs[1, 1], pad=0.02, shrink=0.7)
+    cbar.ax.tick_params(labelsize=fontsize)
+    cbar.ax.yaxis.labelpad = 5
+    cbar.ax.tick_params(length=5, width=1)
+
+
+    diff_data_2 = np.abs(stress_xx_fem - stress_xx_fol)
+    im = axs[0, 2].imshow(diff_data_2, cmap='plasma')
+    axs[0, 2].set_xticks([])
+    axs[0, 2].set_yticks([])
+    axs[0, 2].set_title('Abs. Difference $\sigma_{xx}$', fontsize=fontsize)
+    cbar = fig.colorbar(im, ax=axs[0, 2], pad=0.02, shrink=0.7)
+    cbar.ax.tick_params(labelsize=fontsize)
+    cbar.ax.yaxis.labelpad = 5
+    cbar.ax.tick_params(length=5, width=1)
+
+    diff_data_2 = np.abs(stress_yy_fem - stress_yy_fol)
+    im = axs[1, 2].imshow(diff_data_2, cmap='plasma')
+    axs[1, 2].set_xticks([])
+    axs[1, 2].set_yticks([])
+    axs[1, 2].set_title('Abs. Difference $\sigma_{yy}$', fontsize=fontsize)
+    cbar = fig.colorbar(im, ax=axs[1, 2], pad=0.02, shrink=0.7)
+    cbar.ax.tick_params(labelsize=fontsize)
+    cbar.ax.yaxis.labelpad = 5
+    cbar.ax.tick_params(length=5, width=1)
+
+
+    # Extract cross-sections at y = 0.5
+    y_index = N // 2
+    stress_x_cross_fem = stress_xx_fem[y_index, :]
+    stress_y_cross_fem = stress_yy_fem[y_index, :]
+    stress_x_cross_fol = stress_xx_fol[y_index, :]
+    stress_y_cross_fol = stress_yy_fol[y_index, :]
+
+    # Plot cross-sections in the fourth column
+    axs[0, 3].plot(np.linspace(0, L, N), stress_x_cross_fem, label='FEM', color='r')
+    axs[0, 3].plot(np.linspace(0, L, N), stress_x_cross_fol, label='FOL', color='b')
+    axs[0, 3].set_title('Cross-section $\sigma_{xx}$', fontsize=fontsize)
+    axs[0, 3].legend()
+
+    axs[1, 3].plot(np.linspace(0, L, N), stress_y_cross_fem, label='FEM', color='r')
+    axs[1, 3].plot(np.linspace(0, L, N), stress_y_cross_fol, label='FOL', color='b')
+    axs[1, 3].set_title('Cross-section $\sigma_{yy}$', fontsize=fontsize)
+    axs[1, 3].legend()
+
+    # Save cross-section data to a text file
+    with open('cross_section_data.txt', 'w') as f:
+        f.write('x, stress_x_fem, stress_x_fol, stress_y_fem, stress_y_fol, stress_xy_fem, stress_xy_fol\n')
+        for i in range(N):
+            f.write(f'{i*dx}, {stress_x_cross_fem[i]}, {stress_x_cross_fol[i]}, {stress_y_cross_fem[i]}, {stress_y_cross_fol[i]}\n')
+
+
+    plt.tight_layout()
+    plt.savefig(plot_name+'.png', dpi=300)
+    # plt.savefig(plot_name+'.pdf')
+    plt.show()
+
+
 def FourthTensorToVoigt(Cf):
     if Cf.size == 16:
         C = jnp.zeros((3,3))
@@ -789,3 +874,9 @@ def Neo_Hooke(F,k,mu):
     C_tangent_fourth = C_vol + C_iso
     
     return xsie, Se, C_tangent_fourth
+
+def UpdateDefaultDict(default_dict:dict,given_dict:dict):
+    filtered_update = {k: given_dict[k] for k in default_dict 
+                    if k in given_dict and isinstance(given_dict[k], type(default_dict[k]))}
+    default_dict.update(filtered_update)
+    return default_dict
