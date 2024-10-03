@@ -1,12 +1,12 @@
-# This workflow will install Python dependencies and run tests 
+# This workflow will installs FOL & its dependencies and then run tests 
 
 name: Python package
 
 on:
   push:
-    branches: [ "feature_activate_github_CICD" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "feature_activate_github_CICD" ]
+    branches: [ "main" ]
 
 jobs:
   build:
