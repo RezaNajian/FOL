@@ -5,9 +5,9 @@ name: Python package
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "feature_activate_github_CICD" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "feature_activate_github_CICD" ]
 
 jobs:
   build:
