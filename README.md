@@ -2,7 +2,10 @@
 
 
 # FOL: Efficient Solution and Optimization of PDEs
-Finite Operator Learning (FOL) combines neural operators, physics-informed machine learning, and numerical methods to solve partial differential equations without data, providing accurate sensitivities and enabling efficient gradient-based optimization. It uses a feed-forward neural network to map the design space to the solution space while ensuring compliance with physical laws.
+Finite Operator Learning (FOL) combines neural operators, physics-informed machine learning, and numerical methods to solve partial differential equations without data, providing accurate sensitivities and enabling efficient gradient-based optimization. It uses neural networks to map the design space to the solution space while ensuring compliance with physical laws.
+
+# Main Features
+- Python-based framework built on [JAX](https://github.com/jax-ml/jax), leveraging key features like auto-vectorization with [jax.vmap()](https://jax.readthedocs.io/en/latest/_autosummary/jax.vmap.html#jax.vmap), just-in-time compilation with [jax.jit()](https://jax.readthedocs.io/en/latest/_autosummary/jax.jit.html#jax.jit), and automatic differentiation with [jax.grad()](https://jax.readthedocs.io/en/latest/_autosummary/jax.grad.html#jax.grad) for high-efficiency computations on CPUs, GPUs, and TPUs.
 
 # Installation Guide
 To install FOL, follow these steps:
