@@ -1,5 +1,9 @@
 <p align=center><img height="32.125%" width="32.125%" src="https://github.com/RezaNajian/FOL/assets/62375973/0e1ca4e0-0658-4f5d-aad9-1ae7c9f67574"></p>
 
+[![License][license-image]][license] 
+
+[license-image]: https://img.shields.io/badge/license-BSD-green.svg?style=flat
+[license]: https://github.com/RezaNajian/FOL/LICENSE
 
 # FOL: Efficient Solution and Optimization of PDEs
 Finite Operator Learning (FOL) combines neural operators, physics-informed machine learning, and classical numerical methods to solve and optimize parametrically defined partial differential equations (PDEs). In essence, FOL directly utilizes the discretized residuals of governing equations during the backpropagation step of training, enabling the integration of traditional numerical methods—such as finite element methods (FEM). The advantages of this approach are thoroughly studied and detailed in FOL's publication.
