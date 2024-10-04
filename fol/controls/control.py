@@ -19,7 +19,7 @@ class Control(ABC):
     """
     def __init__(self, control_name: str) -> None:
         self.__name = control_name
-        self.__initialized = False
+        self.initialized = False
 
     def GetName(self) -> str:
         return self.__name

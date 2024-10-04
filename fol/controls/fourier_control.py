@@ -5,7 +5,7 @@
 """
 from  .control import Control
 import jax.numpy as jnp
-from jax import jit,jacfwd
+from jax import jit,jacfwd,vmap
 from functools import partial
 from jax.nn import sigmoid
 from fol.mesh_input_output.mesh import Mesh
@@ -43,24 +43,23 @@ class FourierControl(Control):
         self.num_z_freqs = self.z_freqs.shape[-1]
         self.num_control_vars = self.num_x_freqs * self.num_y_freqs * self.num_z_freqs + 1
         self.num_controlled_vars = self.fe_mesh.GetNumberOfNodes()
-        self.__initialized = True
+        mesh_x, mesh_y, mesh_z = jnp.meshgrid(self.x_freqs, self.y_freqs, self.z_freqs, indexing='ij')
+        self.frquencies_vec = jnp.vstack([mesh_x.ravel(), mesh_y.ravel(), mesh_z.ravel()]).T
+        self.initialized = True
 
     def Finalize(self) -> None:
         pass
 
     @partial(jit, static_argnums=(0,))
     def ComputeControlledVariables(self,variable_vector:jnp.array):
-        if variable_vector.shape[-1] != self.num_control_vars:
-            raise ValueError('shape of given coefficients does not match the number of frequencies !')
-        K = jnp.zeros((self.num_controlled_vars))
-        K += variable_vector[0]/2.0
-        coeff_counter = 1
-        for freq_x in self.x_freqs:
-            for freq_y in self.y_freqs:
-                for freq_z in self.z_freqs:
-                    K += variable_vector[coeff_counter] * jnp.cos(freq_x * jnp.pi * self.fe_mesh.GetNodesX()) * jnp.cos(freq_y * jnp.pi * self.fe_mesh.GetNodesY()) * jnp.cos(freq_z * jnp.pi * self.fe_mesh.GetNodesZ())
-                    coeff_counter += 1
-
+        @jit
+        def evaluate_at_frequencies(freqs,coeff):
+            cos_x = jnp.cos(freqs[0] * jnp.pi * self.fe_mesh.GetNodesX())
+            cos_y = jnp.cos(freqs[1] * jnp.pi * self.fe_mesh.GetNodesY())
+            cos_z = jnp.cos(freqs[2] * jnp.pi * self.fe_mesh.GetNodesZ())
+            return coeff * cos_x * cos_y * cos_z
+        K = (variable_vector[0]/2.0) + jnp.sum(vmap(evaluate_at_frequencies, in_axes=(0, 0))
+                                               (self.frquencies_vec,variable_vector[1:]),axis=0)
         return (self.max-self.min) * sigmoid(self.beta*(K-0.5)) + self.min
     
     @partial(jit, static_argnums=(0,))
