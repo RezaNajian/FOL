@@ -1,11 +1,11 @@
 """
  Authors: Reza Najian Asl, https://github.com/RezaNajian
  Date: April, 2024
- License: FOL/License.txt
+ License: FOL/LICENSE
 """
 from  .control import Control
 import jax.numpy as jnp
-from jax import jit,jacfwd,vmap
+from jax import jit,vmap
 from functools import partial
 from jax.nn import sigmoid
 from fol.mesh_input_output.mesh import Mesh
@@ -17,12 +17,6 @@ class FourierControl(Control):
         super().__init__(control_name)
         self.settings = control_settings
         self.fe_mesh = fe_mesh
-
-    def GetNumberOfVariables(self):
-        return self.num_control_vars
-    
-    def GetNumberOfControlledVariables(self):
-        return self.num_controlled_vars
 
     @print_with_timestamp_and_execution_time
     def Initialize(self) -> None:
@@ -47,9 +41,6 @@ class FourierControl(Control):
         self.frquencies_vec = jnp.vstack([mesh_x.ravel(), mesh_y.ravel(), mesh_z.ravel()]).T
         self.initialized = True
 
-    def Finalize(self) -> None:
-        pass
-
     @partial(jit, static_argnums=(0,))
     def ComputeControlledVariables(self,variable_vector:jnp.array):
         @jit
@@ -61,7 +52,7 @@ class FourierControl(Control):
         K = (variable_vector[0]/2.0) + jnp.sum(vmap(evaluate_at_frequencies, in_axes=(0, 0))
                                                (self.frquencies_vec,variable_vector[1:]),axis=0)
         return (self.max-self.min) * sigmoid(self.beta*(K-0.5)) + self.min
-    
-    @partial(jit, static_argnums=(0,))
-    def ComputeJacobian(self,control_vec):
-        return jnp.squeeze(jacfwd(self.ComputeControlledVariables,argnums=0)(control_vec))
+
+    @print_with_timestamp_and_execution_time
+    def Finalize(self) -> None:
+        pass
