@@ -48,11 +48,6 @@ class VoronoiControl(Control):
         K = jnp.zeros((self.num_controlled_vars))
         seed_points = jnp.vstack((x_coord, y_coord)).T
         
-        if seed_points.shape[0] < 4:
-            raise ValueError("At least 4 seed points are required to create a Voronoi diagram.")
-        if x_coord.shape[-1] != self.numberof_seeds or y_coord.shape[-1] != self.numberof_seeds or k_values.shape[-1] != self.numberof_seeds:
-            raise ValueError("Number of coordinates should be equal to number of seed points!")
-        
         # Create the grid points
         grid_points = jnp.vstack([X.ravel(), Y.ravel()]).T
         
