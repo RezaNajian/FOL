@@ -62,12 +62,11 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
             pickle.dump(domain_export_dict,f)
 
     # set NN hyper-parameters
-    fol_num_epochs = 1000
     fol_batch_size = 1
     fol_learning_rate = 0.0001
     hidden_layer = [1]
     # here we specify whther to do pr_le or on the fly solve
-    parametric_learning = True
+    parametric_learning = False
     if parametric_learning:
         # now create train and test samples
         num_train_samples = int(0.8 * coeffs_matrix.shape[0])
@@ -98,50 +97,53 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
         test_eval_ids = [0,1]
         for eval_id in test_eval_ids:
             FOL_UV = UV_test[eval_id]
-            FE_UV = np.array(first_fe_solver.SingleSolve(pc_test_nodal_value_matrix[eval_id],np.zeros(2*fe_model.GetNumberOfNodes())))  
-            print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
-            absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
+            if solve_FE:
+                FE_UV = np.array(first_fe_solver.SingleSolve(pc_test_nodal_value_matrix[eval_id],np.zeros(2*fe_model.GetNumberOfNodes())))  
+                print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
+                absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
             
-            # Plot displacement field U
-            vectors_list = [pc_test_nodal_value_matrix[eval_id],FOL_UV[::2],FE_UV[::2],absolute_error[::2]]
-            plot_mesh_res(vectors_list,file_name=os.path.join(case_dir,f"U_test_sample_{eval_id}"),dir="U")
-            # Plot displacement field V
-            vectors_list = [pc_test_nodal_value_matrix[eval_id],FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]]
-            plot_mesh_res(vectors_list,file_name=os.path.join(case_dir,f"V_test_sample_{eval_id}"),dir="V")
-            # Plot Stress field
-            plot_mesh_grad_res_mechanics(vectors_list, os.path.join(case_dir,f"stress_test_sample_{eval_id}"), loss_settings)
+                # Plot displacement field U
+                vectors_list = [pc_test_nodal_value_matrix[eval_id],FOL_UV[::2],FE_UV[::2],absolute_error[::2]]
+                plot_mesh_res(vectors_list,file_name=os.path.join(case_dir,f"U_test_sample_{eval_id}"),dir="U")
+                # Plot displacement field V
+                vectors_list = [pc_test_nodal_value_matrix[eval_id],FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]]
+                plot_mesh_res(vectors_list,file_name=os.path.join(case_dir,f"V_test_sample_{eval_id}"),dir="V")
+                # Plot Stress field
+                plot_mesh_grad_res_mechanics(vectors_list, os.path.join(case_dir,f"stress_test_sample_{eval_id}"), loss_settings)
 
 
         train_eval_ids = [0,1]
         for eval_id in train_eval_ids:
             FOL_UV = UV_train[eval_id]
-            FE_UV = np.array(first_fe_solver.SingleSolve(pc_train_nodal_value_matrix[eval_id],np.zeros(2*fe_model.GetNumberOfNodes())))
+            if solve_FE:
+                FE_UV = np.array(first_fe_solver.SingleSolve(pc_train_nodal_value_matrix[eval_id],np.zeros(2*fe_model.GetNumberOfNodes())))
+                print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
+                absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
+                
+                # Plot displacement field U
+                vectors_list = [pc_train_nodal_value_matrix[eval_id],FOL_UV[::2],FE_UV[::2],absolute_error[::2]]
+                plot_mesh_res(vectors_list,file_name=os.path.join(case_dir,f"U_train_sample_{eval_id}"),dir="U")
+                # Plot displacement field V
+                vectors_list = [pc_train_nodal_value_matrix[eval_id],FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]]
+                plot_mesh_res(vectors_list,file_name=os.path.join(case_dir,f"V_train_sample_{eval_id}"),dir="V")
+                # Plot Stress field
+                plot_mesh_grad_res_mechanics(vectors_list, os.path.join(case_dir,f"stress_train_sample_{eval_id}"), loss_settings)
+
+    else:
+        FOL_UV = fol.Predict(pc_train_mat)
+        if solve_FE:
+            FE_UV = np.array(first_fe_solver.SingleSolve(pc_train_nodal_value_matrix,np.zeros(2*fe_model.GetNumberOfNodes())))
             print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
             absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
             
             # Plot displacement field U
-            vectors_list = [pc_train_nodal_value_matrix[eval_id],FOL_UV[::2],FE_UV[::2],absolute_error[::2]]
-            plot_mesh_res(vectors_list,file_name=os.path.join(case_dir,f"U_train_sample_{eval_id}"),dir="U")
+            vectors_list = [pc_train_nodal_value_matrix,FOL_UV[::2],FE_UV[::2],absolute_error[::2]]
+            plot_mesh_res(vectors_list,os.path.join(case_dir,"U_train"),"U")
             # Plot displacement field V
-            vectors_list = [pc_train_nodal_value_matrix[eval_id],FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]]
-            plot_mesh_res(vectors_list,file_name=os.path.join(case_dir,f"V_train_sample_{eval_id}"),dir="V")
+            vectors_list = [pc_train_nodal_value_matrix,FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]]
+            plot_mesh_res(vectors_list,os.path.join(case_dir,"V_train"),"V")
             # Plot Stress field
-            plot_mesh_grad_res_mechanics(vectors_list, os.path.join(case_dir,f"stress_train_sample_{eval_id}"), loss_settings)
-
-    else:
-        FOL_UV = fol.Predict(pc_train_mat)
-        FE_UV = np.array(first_fe_solver.SingleSolve(pc_train_nodal_value_matrix,np.zeros(2*fe_model.GetNumberOfNodes())))
-        print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
-        absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
-        
-        # Plot displacement field U
-        vectors_list = [pc_train_nodal_value_matrix,FOL_UV[::2],FE_UV[::2],absolute_error[::2]]
-        plot_mesh_res(vectors_list,os.path.join(case_dir,"U_train"),"U")
-        # Plot displacement field V
-        vectors_list = [pc_train_nodal_value_matrix,FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]]
-        plot_mesh_res(vectors_list,os.path.join(case_dir,"V_train"),"V")
-        # Plot Stress field
-        plot_mesh_grad_res_mechanics(vectors_list,os.path.join(case_dir,"stress_train"), loss_settings)
+            plot_mesh_grad_res_mechanics(vectors_list,os.path.join(case_dir,"stress_train"), loss_settings)
 
     if clean_dir:
         shutil.rmtree(case_dir)
@@ -149,7 +151,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 if __name__ == "__main__":
     # Initialize default values
     fol_num_epochs = 10
-    solve_FE = False
+    solve_FE = True
     clean_dir = False
 
     # Parse the command-line arguments
