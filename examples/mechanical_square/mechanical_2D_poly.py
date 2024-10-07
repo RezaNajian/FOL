@@ -6,13 +6,13 @@ from fol.loss_functions.mechanical_2D_fe_quad_neohooke import MechanicalLoss2D
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.voronoi_control import VoronoiControl
 from fol.deep_neural_networks.fe_operator_learning import FiniteElementOperatorLearning
-from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementLinearResidualBasedSolver
+from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
 
 def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     # directory & save handling
-    working_directory_name = 'mechanical_2D_poly_lin'
+    working_directory_name = 'mechanical_2D_poly'
     case_dir = os.path.join('.', working_directory_name)
     create_clean_directory(working_directory_name)
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
@@ -36,8 +36,8 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
                                                                               fe_mesh=fe_mesh)
 
     # k_rangeof_values in the following could be a certain amount of values from a list instead of a tuple
-    # voronoi_control_settings = {"numberof_seeds":5,"k_rangeof_values":[10,20,30,40,50,60,70,80,90,100]}
-    voronoi_control_settings = {"numberof_seeds":5,"k_rangeof_values":(0,1)}
+    voronoi_control_settings = {"numberof_seeds":5,"k_rangeof_values":[10,20,30,40,50,60,70,80,90,100]}
+    # voronoi_control_settings = {"numberof_seeds":10,"k_rangeof_values":(0,1)}
     voronoi_control = VoronoiControl("first_voronoi_control",voronoi_control_settings,fe_mesh)
 
     fe_mesh.Initialize()
@@ -69,11 +69,10 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 
     # solve FE here
     if solve_FE:
-        fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-6,"atol":1e-6,
-                                                    "maxiter":1000,"pre-conditioner":"ilu"},
+        fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl"},
                       "nonlinear_solver_settings":{"rel_tol":1e-5,"abs_tol":1e-5,
                                                     "maxiter":10,"load_incr":5}}
-        nonlin_fe_solver = FiniteElementLinearResidualBasedSolver("linear_fe_solver",mechanical_loss_2d,fe_setting)
+        nonlin_fe_solver = FiniteElementNonLinearResidualBasedSolver("nonlin_fe_solver",mechanical_loss_2d,fe_setting)
         nonlin_fe_solver.Initialize()
         FE_UV = np.array(nonlin_fe_solver.Solve(K_matrix[eval_id],np.zeros(2*fe_mesh.GetNumberOfNodes())))  
         fe_mesh['U_FE'] = FE_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
