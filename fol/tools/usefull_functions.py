@@ -287,22 +287,22 @@ def create_random_fourier_samples(fourier_control,numberof_sample):
 
     return coeffs_matrix,K_matrix
 
-def create_random_voronoi_samples(voronoi_control,numberof_sample):
-    number_seeds = voronoi_control.numberof_seeds
-    rangeofValues = voronoi_control.k_rangeof_values
-    numberofVar = voronoi_control.GetNumberOfVariables()
+def create_random_voronoi_samples(voronoi_control,number_of_sample):
+    number_seeds = voronoi_control.number_of_seeds
+    rangeofValues = voronoi_control.E_values
+    numberofVar = voronoi_control.num_control_vars
     coeffs_matrix = np.zeros((0,numberofVar))
     
-    for _ in range(numberof_sample):
+    for _ in range(number_of_sample):
         x_coords = np.random.rand(number_seeds)
         y_coords = np.random.rand(number_seeds)
         if isinstance(rangeofValues, tuple):
-            K_values = np.random.uniform(rangeofValues[0],rangeofValues[-1],number_seeds)
+            E_values = np.random.uniform(rangeofValues[0],rangeofValues[-1],number_seeds)
         if isinstance(rangeofValues, list):
-            K_values = np.random.choice(rangeofValues, size=number_seeds)
+            E_values = np.random.choice(rangeofValues, size=number_seeds)
         
         Kcoeffs = np.zeros((0,numberofVar))
-        Kcoeffs = np.concatenate((x_coords.reshape(1,-1), y_coords.reshape(1,-1), K_values.reshape(1,-1)), axis=1)
+        Kcoeffs = np.concatenate((x_coords.reshape(1,-1), y_coords.reshape(1,-1), E_values.reshape(1,-1)), axis=1)
         coeffs_matrix = np.vstack((coeffs_matrix,Kcoeffs))
     K_matrix = voronoi_control.ComputeBatchControlledVariables(coeffs_matrix)
     return coeffs_matrix,K_matrix
@@ -438,7 +438,7 @@ def plot_mesh_res(vectors_list:list, file_name:str="plot",dir:str="U"):
     plt.tight_layout()
 
     # Save the figure in multiple formats
-    plt.savefig(file_name+'.png', dpi=300)
+    plt.savefig(file_name, dpi=300)
     # plt.savefig(plot_name+'.pdf')
 
 
@@ -559,7 +559,7 @@ def plot_mesh_grad_res_mechanics(vectors_list:list, file_name:str="plot", loss_s
 
 
     plt.tight_layout()
-    plt.savefig(file_name+'.png', dpi=300)
+    plt.savefig(file_name, dpi=300)
     # plt.savefig(plot_name+'.pdf')
 
 def TensorToVoigt(tensor):

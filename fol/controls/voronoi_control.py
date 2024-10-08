@@ -1,30 +1,17 @@
 """
  Authors: Kianoosh Taghikhani, https://github.com/kianoosh1989
  Date: July, 2024
- License: FOL/License.txt
+ License: FOL/LICENSE
 """
 from  .control import Control
 import jax.numpy as jnp
-from jax import jit,jacfwd,vmap
-from jax.random import PRNGKey, normal
-from scipy.spatial import KDTree
+from jax import jit,vmap
 import numpy as np
 from functools import partial
-from jax.nn import sigmoid
 from fol.mesh_input_output.mesh import Mesh
 from fol.tools.decoration_functions import *
 
 class VoronoiControl(Control):
-<<<<<<< HEAD
-    @print_with_timestamp_and_execution_time
-    def __init__(self,control_name: str,control_settings,fe_model):
-        super().__init__(control_name)
-        self.fe_model = fe_model
-        self.settings = control_settings
-        self.numberof_seeds = self.settings["numberof_seeds"]
-        self.k_rangeof_values = self.settings["k_rangeof_values"]
-=======
-
     def __init__(self,control_name: str,control_settings, fe_mesh: Mesh):
         super().__init__(control_name)
         self.settings = control_settings
@@ -32,38 +19,24 @@ class VoronoiControl(Control):
 
     @print_with_timestamp_and_execution_time
     def Initialize(self) -> None:
-        self.numberof_seeds = self.settings["numberof_seeds"]
-        if isinstance(self.settings["k_rangeof_values"],tuple):
-            start, end = self.settings["k_rangeof_values"]
-            self.k_rangeof_values = range(start,end)
-        if isinstance(self.settings["k_rangeof_values"],list):
-            self.k_rangeof_values = list(self.settings["k_rangeof_values"])
->>>>>>> main
+        self.number_of_seeds = self.settings["number_of_seeds"]
+        if not isinstance(self.settings["E_values"],tuple) and not isinstance(self.settings["E_values"],list):
+            raise(ValueError("'E values' should be either tuple or list"))
+        self.E_values = self.settings["E_values"]
 
-        # The number 3 stands for the following: x coordinates array, y coordinates array, and K values
-        self.num_control_vars = self.numberof_seeds * 3 
+        # number 3 stands for the following: x coordinates array, y coordinates array, and K values
+        self.num_control_vars = self.number_of_seeds * 3 
         self.num_controlled_vars = self.fe_mesh.GetNumberOfNodes()
-
-    def GetNumberOfVariables(self):
-        return self.num_control_vars
-    
-    def GetNumberOfControlledVariables(self):
-        return self.num_controlled_vars
-
-    def Finalize(self) -> None:
-        pass
     
     @partial(jit, static_argnums=(0,))
     def ComputeControlledVariables(self, variable_vector: jnp.array):
-        x_coord = variable_vector[:self.numberof_seeds]
-        y_coord = variable_vector[self.numberof_seeds:2 * self.numberof_seeds]
-        k_values = variable_vector[2 * self.numberof_seeds:]
-        X = np.asarray(self.fe_model.GetNodesX())
-        Y = np.asarray(self.fe_model.GetNodesY())
+        x_coord = variable_vector[:self.number_of_seeds]
+        y_coord = variable_vector[self.number_of_seeds:2 * self.number_of_seeds]
+        k_values = variable_vector[2 * self.number_of_seeds:]
+        X = self.fe_mesh.GetNodesX()
+        Y = self.fe_mesh.GetNodesY()
         K = jnp.zeros((self.num_controlled_vars))
         seed_points = jnp.vstack((x_coord, y_coord)).T
-        
-        # Create the grid points
         grid_points = jnp.vstack([X.ravel(), Y.ravel()]).T
         
         # Calculate Euclidean distance between each grid point and each seed point
@@ -75,12 +48,10 @@ class VoronoiControl(Control):
             distances = euclidean_distance(grid_point, seed_points)
             nearest_seed_idx = jnp.argmin(distances)
             return k_values[nearest_seed_idx]
-
-        assign_value_to_grid_vmap = vmap(assign_value_to_grid)
-        K = assign_value_to_grid_vmap(grid_points)
-
+        assign_value_to_grid_vmap_compatible = vmap(assign_value_to_grid,in_axes= 0)(grid_points)
+        K = assign_value_to_grid_vmap_compatible
         return K
 
-    @partial(jit, static_argnums=(0,))
-    def ComputeJacobian(self,control_vec):
-        return jnp.squeeze(jacfwd(self.ComputeControlledVariables,argnums=0)(control_vec))
+    @print_with_timestamp_and_execution_time
+    def Finalize(self) -> None:
+        pass
