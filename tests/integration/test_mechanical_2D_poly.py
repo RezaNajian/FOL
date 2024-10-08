@@ -5,7 +5,7 @@ import os
 import numpy as np
 from fol.loss_functions.mechanical_2D_fe_quad import MechanicalLoss2D
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementLinearResidualBasedSolver
-from fol.controls.voronoi_control import VoronoiControl
+from fol.controls.voronoi_control2D import VoronoiControl
 from fol.deep_neural_networks.fe_operator_learning import FiniteElementOperatorLearning
 from fol.tools.usefull_functions import *
 

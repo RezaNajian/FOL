@@ -4,7 +4,7 @@ import os
 import numpy as np
 from fol.loss_functions.mechanical_2D_fe_quad import MechanicalLoss2D
 from fol.mesh_input_output.mesh import Mesh
-from fol.controls.voronoi_control import VoronoiControl
+from fol.controls.voronoi_control2D import VoronoiControl2D
 from fol.deep_neural_networks.fe_operator_learning import FiniteElementOperatorLearning
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
@@ -38,7 +38,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     # k_rangeof_values in the following could be a certain amount of values from a list instead of a tuple
     # voronoi_control_settings = {"numberof_seeds":5,"k_rangeof_values":[10,20,30,40,50,60,70,80,90,100]}
     voronoi_control_settings = {"number_of_seeds":5,"E_values":(0.1,1)}
-    voronoi_control = VoronoiControl("first_voronoi_control",voronoi_control_settings,fe_mesh)
+    voronoi_control = VoronoiControl2D("first_voronoi_control",voronoi_control_settings,fe_mesh)
 
     fe_mesh.Initialize()
     mechanical_loss_2d.Initialize()
