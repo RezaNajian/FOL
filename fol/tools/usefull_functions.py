@@ -287,7 +287,27 @@ def create_random_fourier_samples(fourier_control,numberof_sample):
 
     return coeffs_matrix,K_matrix
 
-def create_random_voronoi_samples(voronoi_control,number_of_sample):
+# def create_random_voronoi_samples(voronoi_control,number_of_sample):
+#     number_seeds = voronoi_control.number_of_seeds
+#     rangeofValues = voronoi_control.E_values
+#     numberofVar = voronoi_control.num_control_vars
+#     coeffs_matrix = np.zeros((0,numberofVar))
+    
+#     for _ in range(number_of_sample):
+#         x_coords = np.random.rand(number_seeds)
+#         y_coords = np.random.rand(number_seeds)
+#         if isinstance(rangeofValues, tuple):
+#             E_values = np.random.uniform(rangeofValues[0],rangeofValues[-1],number_seeds)
+#         if isinstance(rangeofValues, list):
+#             E_values = np.random.choice(rangeofValues, size=number_seeds)
+        
+#         Kcoeffs = np.zeros((0,numberofVar))
+#         Kcoeffs = np.concatenate((x_coords.reshape(1,-1), y_coords.reshape(1,-1), E_values.reshape(1,-1)), axis=1)
+#         coeffs_matrix = np.vstack((coeffs_matrix,Kcoeffs))
+#     K_matrix = voronoi_control.ComputeBatchControlledVariables(coeffs_matrix)
+#     return coeffs_matrix,K_matrix
+
+def create_random_voronoi_samples(voronoi_control,number_of_sample,dim=2):
     number_seeds = voronoi_control.number_of_seeds
     rangeofValues = voronoi_control.E_values
     numberofVar = voronoi_control.num_control_vars
@@ -296,13 +316,23 @@ def create_random_voronoi_samples(voronoi_control,number_of_sample):
     for _ in range(number_of_sample):
         x_coords = np.random.rand(number_seeds)
         y_coords = np.random.rand(number_seeds)
+        if dim == 3:
+            z_coords = np.random.rand(number_seeds)
+        
+        
         if isinstance(rangeofValues, tuple):
             E_values = np.random.uniform(rangeofValues[0],rangeofValues[-1],number_seeds)
         if isinstance(rangeofValues, list):
             E_values = np.random.choice(rangeofValues, size=number_seeds)
         
         Kcoeffs = np.zeros((0,numberofVar))
-        Kcoeffs = np.concatenate((x_coords.reshape(1,-1), y_coords.reshape(1,-1), E_values.reshape(1,-1)), axis=1)
+        if dim == 3:
+            Kcoeffs = np.concatenate((x_coords.reshape(1,-1), y_coords.reshape(1,-1), 
+                                  z_coords.reshape(1,-1), E_values.reshape(1,-1)), axis=1)
+        else:
+            Kcoeffs = np.concatenate((x_coords.reshape(1,-1), y_coords.reshape(1,-1), 
+                                      E_values.reshape(1,-1)), axis=1)
+        
         coeffs_matrix = np.vstack((coeffs_matrix,Kcoeffs))
     K_matrix = voronoi_control.ComputeBatchControlledVariables(coeffs_matrix)
     return coeffs_matrix,K_matrix
