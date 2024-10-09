@@ -1,6 +1,8 @@
-import sys
 import os
-
+import sys
+script_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.abspath(os.path.join(script_dir, "../../"))
+sys.path.insert(0, parent_dir)
 import numpy as np
 from fol.loss_functions.mechanical_2D_fe_quad_neohooke import MechanicalLoss2D
 from fol.mesh_input_output.mesh import Mesh

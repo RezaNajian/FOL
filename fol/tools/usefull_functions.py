@@ -2,6 +2,7 @@
 import jax.numpy as jnp
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.special import expit
 import math
 import gmsh
 import meshio
@@ -394,3 +395,10 @@ def UpdateDefaultDict(default_dict:dict,given_dict:dict):
                     if k in given_dict and isinstance(given_dict[k], type(default_dict[k]))}
     default_dict.update(filtered_update)
     return default_dict
+
+# Define a function to sample for a single length scale
+def sample_for_length_scale(length_scale, X, X1_shape, random_state):
+    kernel = C(1.0, (1e-3, 1e3)) * RBF(length_scale, (1e-2, 1e2))
+    gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=10)
+    y_sample = gp.sample_y(X, n_samples=1, random_state=random_state).ravel()
+    return expit(y_sample.reshape(X1_shape))

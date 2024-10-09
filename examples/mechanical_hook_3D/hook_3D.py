@@ -1,3 +1,7 @@
+import os, sys
+script_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.abspath(os.path.join(script_dir, "../../"))
+sys.path.insert(0, parent_dir)
 
 import numpy as np
 from fol.mesh_input_output.mesh import Mesh

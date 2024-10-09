@@ -1,4 +1,11 @@
 import os,time,sys
+# Get the directory of the current script
+script_dir = os.path.dirname(os.path.abspath(__file__))
+# Navigate two levels up in the directory structure
+parent_dir = os.path.abspath(os.path.join(script_dir, "../../"))
+# Append the parent directory to sys.path
+sys.path.insert(0, parent_dir)
+
 import numpy as np
 from fol.mesh_input_output.mesh import Mesh
 from fol.loss_functions.thermal_3D_fe_tetra import ThermalLoss3DTetra
