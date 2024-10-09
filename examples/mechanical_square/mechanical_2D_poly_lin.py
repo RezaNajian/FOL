@@ -2,14 +2,13 @@ import sys
 import os
 
 import numpy as np
-from fol.computational_models.fe_model import FiniteElementModel
 from fol.loss_functions.mechanical_2D_fe_quad import MechanicalLoss2D
-from fol.solvers.fe_solver import FiniteElementSolver
-from fol.controls.voronoi_control import VoronoiControl
+from fol.mesh_input_output.mesh import Mesh
+from fol.controls.voronoi_control2D import VoronoiControl2D
 from fol.deep_neural_networks.fe_operator_learning import FiniteElementOperatorLearning
+from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
-import pickle, time
 
 def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     # directory & save handling
@@ -19,133 +18,79 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
     
     # problem setup
-    model_settings = {"L":1,
-                    "N":20,
+    model_settings = {"L":1,"N":10,
                     "Ux_left":0.0,"Ux_right":0.05,
                     "Uy_left":0.0,"Uy_right":0.05}
 
     # creation of the model
-    model_info = create_2D_square_model_info_mechanical(**model_settings)
+    fe_mesh = create_2D_square_mesh(L=1,N=10)
 
-    # creation of the objects
-    fe_model = FiniteElementModel("FE_model",model_info)
-    loss_settings = {"young_modulus":1,"poisson_ratio":0.3,"num_gp":2}
-    mechanical_loss_2d = MechanicalLoss2D("mechanical_loss_2d",fe_model,loss_settings)
+    # create fe-based loss function
+    bc_dict = {"Ux":{"left":model_settings["Ux_left"],"right":model_settings["Ux_right"]},
+               "Uy":{"left":model_settings["Uy_left"],"right":model_settings["Uy_right"]}}
+    
+    material_dict = {"young_modulus":1,"poisson_ratio":0.3}
+    mechanical_loss_2d = MechanicalLoss2D("mechanical_loss_2d",loss_settings={"dirichlet_bc_dict":bc_dict,
+                                                                              "num_gp":2,
+                                                                              "material_dict":material_dict},
+                                                                              fe_mesh=fe_mesh)
 
     # k_rangeof_values in the following could be a certain amount of values from a list instead of a tuple
-    # voronoi_control_settings = {"numberof_seeds":5,"k_rangeof_values":list(0.01*np.arange(10,100,10))}
-    voronoi_control_settings = {"numberof_seeds":5,"k_rangeof_values":(0.1,1)}
-    voronoi_control = VoronoiControl("first_voronoi_control",voronoi_control_settings,fe_model)
+    # voronoi_control_settings = {"numberof_seeds":5,"k_rangeof_values":[10,20,30,40,50,60,70,80,90,100]}
+    voronoi_control_settings = {"number_of_seeds":5,"E_values":(0.1,1)}
+    voronoi_control = VoronoiControl2D("first_voronoi_control",voronoi_control_settings,fe_mesh)
+
+    fe_mesh.Initialize()
+    mechanical_loss_2d.Initialize()
+    voronoi_control.Initialize()
 
     # create some random coefficients & K for training
-    create_random_coefficients = True
-    if create_random_coefficients:
-        number_of_random_samples = 100
-        coeffs_matrix,K_matrix = create_random_voronoi_samples(voronoi_control,number_of_random_samples,dim=2)
-        export_dict = {}
-        export_dict["coeffs_matrix"] = coeffs_matrix
-        with open(f'voronoi_control_2D_dict.pkl', 'wb') as f:
-            pickle.dump(export_dict,f)
-    else:
-        with open(f'voronoi_control_2D_dict.pkl', 'rb') as f:
-            loaded_dict = pickle.load(f)
-        
-        coeffs_matrix = loaded_dict["coeffs_matrix"]
-    
-    K_matrix = voronoi_control.ComputeBatchControlledVariables(coeffs_matrix)
+    number_of_random_samples = 100
+    coeffs_matrix,K_matrix = create_random_voronoi_samples(voronoi_control,number_of_random_samples)
 
-    export_domain = False
-    domain_export_dict = {}
-    domain_export_dict["K_matrix"] = K_matrix
-    if export_domain:
-        with open(f'voronoi_domain_dict.pkl', 'wb') as f:
-            pickle.dump(domain_export_dict,f)
+    # now save K matrix 
+    solution_file = os.path.join(case_dir, "K_matrix.txt")
+    np.savetxt(solution_file,K_matrix)
 
-    # set NN hyper-parameters
-    fol_num_epochs = 1000
-    fol_batch_size = 1
-    fol_learning_rate = 0.0001
-    hidden_layer = [1]
-    # here we specify whther to do pr_le or on the fly solve
-    parametric_learning = False
-    if parametric_learning:
-        # now create train and test samples
-        num_train_samples = int(0.8 * coeffs_matrix.shape[0])
-        pc_train_mat = coeffs_matrix[0:num_train_samples]
-        pc_train_nodal_value_matrix = K_matrix[0:num_train_samples]
-        pc_test_mat = coeffs_matrix[num_train_samples:]
-        pc_test_nodal_value_matrix = K_matrix[num_train_samples:]
-    else:
-        on_the_fly_id = -1
-        pc_train_mat = coeffs_matrix[on_the_fly_id].reshape(-1,1).T
-        pc_train_nodal_value_matrix = K_matrix[on_the_fly_id]
-
-    first_fe_solver = FiniteElementSolver("first_fe_solver",mechanical_loss_2d)
+    # specify id of the K of interest
+    eval_id = 25
 
     # now we need to create, initialize and train fol
-    fol = FiniteElementOperatorLearning("first_fol",voronoi_control,[mechanical_loss_2d],hidden_layer,
+    fol = FiniteElementOperatorLearning("first_fol",voronoi_control,[mechanical_loss_2d],[1],
                                         "swish",load_NN_params=False,working_directory=working_directory_name)
     fol.Initialize()
-    start_time = time.process_time()
-    fol.Train(loss_functions_weights=[1],X_train=pc_train_mat,batch_size=fol_batch_size,num_epochs=fol_num_epochs,
-                learning_rate=fol_learning_rate,optimizer="adam",convergence_criterion="total_loss",absolute_error=1e-15,
-                relative_error=1e-15,NN_params_save_file_name="NN_params_"+working_directory_name)
-    print(f"\n############### fol train took: {time.process_time() - start_time} s ###############\n")
 
-    if parametric_learning:
-        UV_train = fol.Predict(pc_train_mat)
-        UV_test = fol.Predict(pc_test_mat)
+    fol.Train(loss_functions_weights=[1],X_train=coeffs_matrix[eval_id].reshape(-1,1).T,batch_size=1,num_epochs=fol_num_epochs,
+                learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",
+                relative_error=1e-12,NN_params_save_file_name="NN_params_"+working_directory_name)
 
-        test_eval_ids = [0]
-        for eval_id in test_eval_ids:
-            FOL_UV = UV_test[eval_id]
-            start_time = time.process_time()
-            FE_UV = np.array(first_fe_solver.SingleSolve(pc_test_nodal_value_matrix[eval_id],np.zeros(2*fe_model.GetNumberOfNodes())))  
-            print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
-            absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
-            
-            # Plot displacement field U
-            vectors_list = [pc_test_nodal_value_matrix[eval_id],FOL_UV[::2],FE_UV[::2],absolute_error[::2]]
-            plot_mesh_vec_data_paper_temp(vectors_list,f"{working_directory_name}\\U_test_sample_{eval_id}","U")
-            # Plot displacement field V
-            vectors_list = [pc_test_nodal_value_matrix[eval_id],FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]]
-            plot_mesh_vec_data_paper_temp(vectors_list,f"{working_directory_name}\\V_test_sample_{eval_id}","V")
-            # Plot Stress field
-            plot_mesh_vec_grad_data_mechanics(vectors_list, f"{working_directory_name}\\stress_test_sample_{eval_id}", loss_settings)
+    FOL_UV = np.array(fol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T))
+    fe_mesh['U_FOL'] = FOL_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
 
+    # solve FE here
+    if solve_FE:
+        fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-6,"atol":1e-6,
+                                                    "maxiter":1000,"pre-conditioner":"ilu"},
+                      "nonlinear_solver_settings":{"rel_tol":1e-5,"abs_tol":1e-5,
+                                                    "maxiter":10,"load_incr":5}}
+        linear_fe_solver = FiniteElementLinearResidualBasedSolver("linear_fe_solver",mechanical_loss_2d,fe_setting)
+        linear_fe_solver.Initialize()
+        FE_UV = np.array(linear_fe_solver.Solve(K_matrix[eval_id],np.zeros(2*fe_mesh.GetNumberOfNodes())))  
+        fe_mesh['U_FE'] = FE_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
 
-        train_eval_ids = [0]
-        for eval_id in train_eval_ids:
-            FOL_UV = UV_train[eval_id]
-            start_time = time.process_time()
-            FE_UV = np.array(first_fe_solver.SingleSolve(pc_train_nodal_value_matrix[eval_id],np.zeros(2*fe_model.GetNumberOfNodes())))
-            print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
-            absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
-            
-            # Plot displacement field U
-            vectors_list = [pc_train_nodal_value_matrix[eval_id],FOL_UV[::2],FE_UV[::2],absolute_error[::2]]
-            plot_mesh_vec_data_paper_temp(vectors_list,f"{working_directory_name}\\U_train_sample_{eval_id}","U")
-            # Plot displacement field V
-            vectors_list = [pc_train_nodal_value_matrix[eval_id],FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]]
-            plot_mesh_vec_data_paper_temp(vectors_list,f"{working_directory_name}\\V_train_sample_{eval_id}","V")
-            # Plot Stress field
-            plot_mesh_vec_grad_data_mechanics(vectors_list,f"{working_directory_name}\\stress_train_sample_{eval_id}", loss_settings)
-
-    else:
-        FOL_UV = fol.Predict(pc_train_mat)
-        start_time = time.process_time()
-        FE_UV = np.array(first_fe_solver.SingleSolve(pc_train_nodal_value_matrix,np.zeros(2*fe_model.GetNumberOfNodes())))
-        print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
         absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
+        fe_mesh['abs_error'] = absolute_error.reshape((fe_mesh.GetNumberOfNodes(), 2))
+
+        vectors_list = [K_matrix[eval_id],FE_UV[::2],FOL_UV[::2]]
+        plot_mesh_res(vectors_list, file_name=os.path.join(case_dir,'plot_U.png'),dir="U")
+        plot_mesh_grad_res_mechanics(vectors_list, file_name=os.path.join(case_dir,'plot_stress_U.png'), loss_settings=material_dict)
         
-        # Plot displacement field U
-        vectors_list = [pc_train_nodal_value_matrix,FOL_UV[::2],FE_UV[::2],absolute_error[::2]]
-        plot_mesh_vec_data_paper_temp(vectors_list,f"{working_directory_name}\\U_train","U")
-        # Plot displacement field V
-        vectors_list = [pc_train_nodal_value_matrix,FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]]
-        plot_mesh_vec_data_paper_temp(vectors_list,f"{working_directory_name}\\V_train","V")
-        # Plot Stress field
-        plot_mesh_vec_grad_data_mechanics(vectors_list,f"{working_directory_name}\\stress_train", loss_settings)
+        vectors_list = [K_matrix[eval_id],FE_UV[1::2],FOL_UV[1::2]]
+        plot_mesh_res(vectors_list, file_name=os.path.join(case_dir,'plot_V.png'),dir="V")
+        plot_mesh_grad_res_mechanics(vectors_list, file_name=os.path.join(case_dir,'plot_stress_V.png'), loss_settings=material_dict)
+        
+    
+    fe_mesh.Finalize(export_dir=case_dir)
 
     if clean_dir:
         shutil.rmtree(case_dir)

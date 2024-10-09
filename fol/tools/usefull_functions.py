@@ -7,6 +7,7 @@ import gmsh
 import meshio
 import os
 import shutil
+from fol.mesh_input_output.mesh import Mesh
 
 def plot_mesh_vec_data(L, vectors_list, subplot_titles=None, fig_title=None, cmap='viridis',
                        block_bool=False, colour_bar=True, colour_bar_name=None,
@@ -182,7 +183,10 @@ def box_mesh(Nx, Ny, Nz, Lx, Ly, Lz, case_dir):
 
     return meshio_obj
 
-def create_3D_box_model_info_thermal(Nx,Ny,Nz,Lx,Ly,Lz,T_left,T_right,case_dir):
+def create_3D_box_mesh(Nx,Ny,Nz,Lx,Ly,Lz,case_dir):
+
+    # create empty fe mesh object
+    fe_mesh = Mesh("box_io","box.")
 
     settings = box_mesh(Nx,Ny,Nz,Lx,Ly,Lz,case_dir)
     X = settings.points[:,0]
@@ -202,175 +206,26 @@ def create_3D_box_model_info_thermal(Nx,Ny,Nz,Lx,Ly,Lz,T_left,T_right,case_dir):
 
     left_boundary_node_ids = jnp.array(left_boundary_node_ids)
     right_boundary_node_ids = jnp.array(right_boundary_node_ids)
-    none_boundary_node_ids = jnp.array(none_boundary_node_ids)
 
-    left_boundary_nodes_values = T_left * jnp.ones(left_boundary_node_ids.shape)
-    right_boundary_nodes_values = T_right * jnp.ones(right_boundary_node_ids.shape)
+    fe_mesh.node_ids = jnp.arange(Y.shape[-1])
+    fe_mesh.nodes_coordinates = jnp.stack((X,Y,Z), axis=1)
 
-    boundary_nodes = jnp.concatenate([left_boundary_node_ids, right_boundary_node_ids])
-    boundary_values = jnp.concatenate([left_boundary_nodes_values, right_boundary_nodes_values])
+    fe_mesh.elements_nodes = {"hexahedron":jnp.array(settings.cells_dict['hexahedron'])}
 
-    nodes_dict = {"nodes_ids":jnp.arange(Y.shape[-1]),"X":X,"Y":Y,"Z":Z}
-    elements_dict = {"elements_ids":jnp.arange(len(settings.cells_dict['hexahedron'])),
-                     "elements_nodes":jnp.array(settings.cells_dict['hexahedron'])}
-    dofs_dict = {"T":{"non_dirichlet_nodes_ids":none_boundary_node_ids,"dirichlet_nodes_ids":boundary_nodes,"dirichlet_nodes_dof_value":boundary_values}}
-    return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict},settings
-def create_3D_box_model_info_mechanical(model_settings,case_dir):
+    fe_mesh.node_sets = {"left":left_boundary_node_ids,
+                         "right":right_boundary_node_ids}
+    
+    fe_mesh.mesh_io = meshio.Mesh(fe_mesh.nodes_coordinates,fe_mesh.elements_nodes)
 
-    settings = box_mesh(model_settings["Nx"],model_settings["Ny"],
-                        model_settings["Nz"],model_settings["Lx"],
-                        model_settings["Ly"],model_settings["Lz"],case_dir)
-    X = settings.points[:,0]
-    Y = settings.points[:,1]
-    Z = settings.points[:,2]
+    fe_mesh.is_initialized = True
 
-    left_boundary_node_ids = []
-    left_non_boundary_node_ids = []
-    right_boundary_node_ids = []
-    right_non_boundary_node_ids = []
-    left_right_non_boundary_node_ids = []
-    for node_id,node_corrds in enumerate(settings.points):
-        if np.isclose(node_corrds[0], 0., atol=1e-5):
-            left_boundary_node_ids.append(node_id)
-        else:
-            left_non_boundary_node_ids.append(node_id)
+    return fe_mesh
 
-        if np.isclose(node_corrds[0], model_settings["Lx"], atol=1e-5):
-            right_boundary_node_ids.append(node_id)
-        else:
-            right_non_boundary_node_ids.append(node_id)
+def create_2D_square_mesh(L,N):
 
-        if not np.isclose(node_corrds[0], 0., atol=1e-5):
-            if not np.isclose(node_corrds[0], model_settings["Lx"], atol=1e-5):
-                left_right_non_boundary_node_ids.append(node_id)
+    # create empty fe mesh object
+    fe_mesh = Mesh("square_io","square.")
 
-    dofs_dict = {"Ux":{"non_dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_dof_value":[]},
-                 "Uy":{"non_dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_dof_value":[]},
-                 "Uz":{"non_dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_dof_value":[]}}
-
-    for dof in ["Ux","Uy","Uz"]:
-        if model_settings[f"{dof}_left"] !="" and model_settings[f"{dof}_right"] !="":
-
-            dofs_dict[dof]["non_dirichlet_nodes_ids"].extend(left_right_non_boundary_node_ids)
-
-            dofs_dict[dof]["dirichlet_nodes_ids"].extend(left_boundary_node_ids)
-            dof_values = [model_settings[f"{dof}_left"]] * len(left_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values)
-
-            dofs_dict[dof]["dirichlet_nodes_ids"].extend(right_boundary_node_ids)
-            dof_values = [model_settings[f"{dof}_right"]] * len(right_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values)
-
-        elif model_settings[f"{dof}_right"] !="":
-            dofs_dict[dof]["non_dirichlet_nodes_ids"].extend(right_non_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_ids"].extend(right_boundary_node_ids)
-            dof_values = [model_settings[f"{dof}_right"]] * len(right_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values)  
-
-        elif model_settings[f"{dof}_left"] !="":
-            dofs_dict[dof]["non_dirichlet_nodes_ids"].extend(left_non_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_ids"].extend(left_boundary_node_ids)
-            dof_values = [model_settings[f"{dof}_left"]] * len(left_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values) 
-
-        dofs_dict[dof]["dirichlet_nodes_dof_value"] = np.array(dofs_dict[dof]["dirichlet_nodes_dof_value"])
-        dofs_dict[dof]["non_dirichlet_nodes_ids"] = np.array(dofs_dict[dof]["non_dirichlet_nodes_ids"])
-        dofs_dict[dof]["dirichlet_nodes_ids"] = np.array(dofs_dict[dof]["dirichlet_nodes_ids"])
-
-
-    nodes_dict = {"nodes_ids":jnp.arange(Y.shape[-1]),"X":X,"Y":Y,"Z":Z}
-    elements_dict = {"elements_ids":jnp.arange(len(settings.cells_dict['hexahedron'])),
-                     "elements_nodes":jnp.array(settings.cells_dict['hexahedron'])}
-
-    return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict},settings
-
-
-def import_box_model_info_mechanical(file_name,case_dir,model_settings):
-
-    mesh = meshio.read(os.path.join(case_dir, file_name))
-
-    points = mesh.points # (num_total_nodes, dim)
-    cells =  mesh.cells_dict['tetra'] # (num_cells, num_nodes)
-    meshio_obj = meshio.Mesh(points=points, cells={'tetra': cells})
-
-    X = meshio_obj.points[:,0]
-    Y = meshio_obj.points[:,1]
-    Z = meshio_obj.points[:,2]
-
-    left_boundary_node_ids = []
-    left_non_boundary_node_ids = []
-    right_boundary_node_ids = []
-    right_non_boundary_node_ids = []
-    left_right_non_boundary_node_ids = []
-    for node_id,node_corrds in enumerate(meshio_obj.points):
-        if np.isclose(node_corrds[0], 0., atol=1e-5):
-            left_boundary_node_ids.append(node_id)
-        else:
-            left_non_boundary_node_ids.append(node_id)
-
-        if np.isclose(node_corrds[0], model_settings["Lx"], atol=1e-5):
-            right_boundary_node_ids.append(node_id)
-        else:
-            right_non_boundary_node_ids.append(node_id)
-
-        if not np.isclose(node_corrds[0], 0., atol=1e-5):
-            if not np.isclose(node_corrds[0], model_settings["Lx"], atol=1e-5):
-                left_right_non_boundary_node_ids.append(node_id)
-
-    dofs_dict = {"Ux":{"non_dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_dof_value":[]},
-                 "Uy":{"non_dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_dof_value":[]},
-                 "Uz":{"non_dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_ids":[],
-                       "dirichlet_nodes_dof_value":[]}}
-
-    for dof in ["Ux","Uy","Uz"]:
-        if model_settings[f"{dof}_left"] !="" and model_settings[f"{dof}_right"] !="":
-
-            dofs_dict[dof]["non_dirichlet_nodes_ids"].extend(left_right_non_boundary_node_ids)
-
-            dofs_dict[dof]["dirichlet_nodes_ids"].extend(left_boundary_node_ids)
-            dof_values = [model_settings[f"{dof}_left"]] * len(left_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values)
-
-            dofs_dict[dof]["dirichlet_nodes_ids"].extend(right_boundary_node_ids)
-            dof_values = [model_settings[f"{dof}_right"]] * len(right_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values)
-
-        elif model_settings[f"{dof}_right"] !="":
-            dofs_dict[dof]["non_dirichlet_nodes_ids"].extend(right_non_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_ids"].extend(right_boundary_node_ids)
-            dof_values = [model_settings[f"{dof}_right"]] * len(right_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values)  
-
-        elif model_settings[f"{dof}_left"] !="":
-            dofs_dict[dof]["non_dirichlet_nodes_ids"].extend(left_non_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_ids"].extend(left_boundary_node_ids)
-            dof_values = [model_settings[f"{dof}_left"]] * len(left_boundary_node_ids)
-            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values) 
-
-        dofs_dict[dof]["dirichlet_nodes_dof_value"] = np.array(dofs_dict[dof]["dirichlet_nodes_dof_value"])
-        dofs_dict[dof]["non_dirichlet_nodes_ids"] = np.array(dofs_dict[dof]["non_dirichlet_nodes_ids"])
-        dofs_dict[dof]["dirichlet_nodes_ids"] = np.array(dofs_dict[dof]["dirichlet_nodes_ids"])
-
-
-    nodes_dict = {"nodes_ids":jnp.arange(Y.shape[-1]),"X":X,"Y":Y,"Z":Z}
-    elements_dict = {"elements_ids":jnp.arange(len(meshio_obj.cells_dict['tetra'])),
-                     "elements_nodes":jnp.array(meshio_obj.cells_dict['tetra'])}
-
-    return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict},meshio_obj
-
-
-def create_2D_square_model_info_mechanical(L,N,Ux_left,Ux_right,Uy_left,Uy_right):
     # FE init starts here
     Ne = N - 1  # Number of elements in each direction
     nx = Ne + 1  # Number of nodes in the x-direction
@@ -383,7 +238,9 @@ def create_2D_square_model_info_mechanical(L,N,Ux_left,Ux_right,Uy_left,Uy_right
     X = X.flatten()
     Y = Y.flatten()
     Z = jnp.zeros((Y.shape[-1]))
-    nodes_dict = {"nodes_ids":jnp.arange(Y.shape[-1]),"X":X,"Y":Y,"Z":Z}
+
+    fe_mesh.node_ids = jnp.arange(Y.shape[-1])
+    fe_mesh.nodes_coordinates = jnp.stack((X,Y,Z), axis=1)
 
     # Create a matrix to store element nodal information
     elements_nodes = jnp.zeros((ne, 4), dtype=int)
@@ -396,38 +253,20 @@ def create_2D_square_model_info_mechanical(L,N,Ux_left,Ux_right,Uy_left,Uy_right
             # Store element and node numbers in the matrix
             elements_nodes = elements_nodes.at[e].set(nodes) # Node numbers
 
-    element_ids = jnp.arange(0,elements_nodes.shape[0])
-    elements_dict = {"elements_ids":element_ids,"elements_nodes":elements_nodes}
+    fe_mesh.elements_nodes = {"quad":elements_nodes}
 
     # Identify boundary nodes on the left and right edges
     left_boundary_nodes = jnp.arange(0, ny * nx, nx)  # Nodes on the left boundary
     right_boundary_nodes = jnp.arange(nx - 1, ny * nx, nx)  # Nodes on the right boundary
 
-    left_ux_values = Ux_left * jnp.ones(left_boundary_nodes.shape)
-    right_ux_values = Ux_right * jnp.ones(right_boundary_nodes.shape)
-    ux_boundary_nodes = jnp.concatenate([left_boundary_nodes, right_boundary_nodes])
-    ux_boundary_values = jnp.concatenate([left_ux_values, right_ux_values])
-    ux_non_boundary_nodes = []
-    for i in range(N*N):
-        if not (jnp.any(ux_boundary_nodes == i)):
-            ux_non_boundary_nodes.append(i)
-    ux_non_boundary_nodes = jnp.array(ux_non_boundary_nodes)
-
-    dofs_dict = {"Ux":{"non_dirichlet_nodes_ids":ux_non_boundary_nodes,"dirichlet_nodes_ids":ux_boundary_nodes,"dirichlet_nodes_dof_value":ux_boundary_values}}
-
-    left_uy_values = Uy_left * jnp.ones(left_boundary_nodes.shape)
-    right_uy_values = Uy_right * jnp.ones(left_boundary_nodes.shape)
-    uy_boundary_nodes = jnp.concatenate([left_boundary_nodes, right_boundary_nodes])
-    uy_boundary_values = jnp.concatenate([left_uy_values, right_uy_values])
-    uy_non_boundary_nodes = []
-    for i in range(N*N):
-        if not (jnp.any(uy_boundary_nodes == i)):
-            uy_non_boundary_nodes.append(i)
-    uy_non_boundary_nodes = jnp.array(uy_non_boundary_nodes)
-
-    dofs_dict["Uy"] = {"non_dirichlet_nodes_ids":uy_non_boundary_nodes,"dirichlet_nodes_ids":uy_boundary_nodes,"dirichlet_nodes_dof_value":uy_boundary_values}
+    fe_mesh.node_sets = {"left":left_boundary_nodes,
+                         "right":right_boundary_nodes}
     
-    return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict}
+    fe_mesh.mesh_io = meshio.Mesh(fe_mesh.nodes_coordinates,fe_mesh.elements_nodes)
+
+    fe_mesh.is_initialized = True
+
+    return fe_mesh
 
 def create_random_fourier_samples(fourier_control,numberof_sample):
     N = int(fourier_control.GetNumberOfControlledVariables()**0.5)
@@ -448,10 +287,11 @@ def create_random_fourier_samples(fourier_control,numberof_sample):
 
     return coeffs_matrix,K_matrix
 
-def create_random_voronoi_samples(voronoi_control,number_of_sample,dim=3):
-    number_seeds = voronoi_control.numberof_seeds
-    rangeofValues = voronoi_control.k_rangeof_values
-    numberofVar = voronoi_control.GetNumberOfVariables()
+
+def create_random_voronoi_samples(voronoi_control,number_of_sample,dim=2):
+    number_seeds = voronoi_control.number_of_seeds
+    rangeofValues = voronoi_control.E_values
+    numberofVar = voronoi_control.num_control_vars
     coeffs_matrix = np.zeros((0,numberofVar))
     
     for _ in range(number_of_sample):
@@ -462,17 +302,17 @@ def create_random_voronoi_samples(voronoi_control,number_of_sample,dim=3):
         
         
         if isinstance(rangeofValues, tuple):
-            K_values = np.random.uniform(rangeofValues[0],rangeofValues[-1],number_seeds)
+            E_values = np.random.uniform(rangeofValues[0],rangeofValues[-1],number_seeds)
         if isinstance(rangeofValues, list):
-            K_values = np.random.choice(rangeofValues, size=number_seeds)
+            E_values = np.random.choice(rangeofValues, size=number_seeds)
         
         Kcoeffs = np.zeros((0,numberofVar))
         if dim == 3:
             Kcoeffs = np.concatenate((x_coords.reshape(1,-1), y_coords.reshape(1,-1), 
-                                  z_coords.reshape(1,-1), K_values.reshape(1,-1)), axis=1)
+                                  z_coords.reshape(1,-1), E_values.reshape(1,-1)), axis=1)
         else:
             Kcoeffs = np.concatenate((x_coords.reshape(1,-1), y_coords.reshape(1,-1), 
-                                      K_values.reshape(1,-1)), axis=1)
+                                      E_values.reshape(1,-1)), axis=1)
         
         coeffs_matrix = np.vstack((coeffs_matrix,Kcoeffs))
     K_matrix = voronoi_control.ComputeBatchControlledVariables(coeffs_matrix)
@@ -487,7 +327,7 @@ def create_clean_directory(case_dir):
     # Create the new directory
     os.makedirs(case_dir)
 
-def plot_mesh_vec_data_paper_temp(vectors_list:list, plot_name:str="plot",dir:str="U"):
+def plot_mesh_res(vectors_list:list, file_name:str="plot",dir:str="U"):
     fontsize = 16
     fig, axs = plt.subplots(2, 4, figsize=(20, 8))  # Adjusted to 4 columns
 
@@ -525,13 +365,15 @@ def plot_mesh_vec_data_paper_temp(vectors_list:list, plot_name:str="plot",dir:st
     cbar.ax.tick_params(length=5, width=1)
 
     # Zoomed-in region
-    zoom_region = data.reshape(N, N)[20:40, 20:40]
+    zoomed_min = int(0.2*N)
+    zoomed_max = int(0.4*N)
+    zoom_region = data.reshape(N, N)[zoomed_min:zoomed_max, zoomed_min:zoomed_max]
     im = axs[0, 2].imshow(zoom_region, cmap='bone', aspect='equal')
     axs[0, 2].set_xticks([])
     axs[0, 2].set_yticks([])
     axs[0, 2].set_xticklabels([])  # Remove text on x-axis
     axs[0, 2].set_yticklabels([])  # Remove text on y-axis
-    axs[0, 2].set_title('Zoomed-in: $x \in [0.4, 0.6], y \in [0.2, 0.6]$', fontsize=fontsize)
+    axs[0, 2].set_title(f'Zoomed-in: $x \in [{zoomed_min/N}, {zoomed_max/N}], y \in [{zoomed_min/N}, {zoomed_max/N}]$', fontsize=fontsize)
     cbar = fig.colorbar(im, ax=axs[0, 2], pad=0.02, shrink=0.7)
     cbar.ax.tick_params(labelsize=fontsize)
     cbar.ax.yaxis.labelpad = 5
@@ -607,14 +449,11 @@ def plot_mesh_vec_data_paper_temp(vectors_list:list, plot_name:str="plot",dir:st
     plt.tight_layout()
 
     # Save the figure in multiple formats
-    plt.savefig(plot_name+'.png', dpi=300)
+    plt.savefig(file_name, dpi=300)
     # plt.savefig(plot_name+'.pdf')
 
-    plt.show()
 
-
-
-def plot_mesh_vec_grad_data_mechanics(vectors_list:list, plot_name:str="plot", loss_settings:dict={}):
+def plot_mesh_grad_res_mechanics(vectors_list:list, file_name:str="plot", loss_settings:dict={}):
     fontsize = 16
     fig, axs = plt.subplots(2, 4, figsize=(20, 8))
 
@@ -723,16 +562,16 @@ def plot_mesh_vec_grad_data_mechanics(vectors_list:list, plot_name:str="plot", l
     axs[1, 3].legend()
 
     # Save cross-section data to a text file
-    with open('cross_section_data.txt', 'w') as f:
+    file_dir = os.path.join(os.path.dirname(os.path.abspath(file_name)),'cross_section_data.txt')
+    with open(file_dir, 'w') as f:
         f.write('x, stress_x_fem, stress_x_fol, stress_y_fem, stress_y_fol, stress_xy_fem, stress_xy_fol\n')
         for i in range(N):
             f.write(f'{i*dx}, {stress_x_cross_fem[i]}, {stress_x_cross_fol[i]}, {stress_y_cross_fem[i]}, {stress_y_cross_fol[i]}\n')
 
 
     plt.tight_layout()
-    plt.savefig(plot_name+'.png', dpi=300)
+    plt.savefig(file_name, dpi=300)
     # plt.savefig(plot_name+'.pdf')
-    plt.show()
 
 def TensorToVoigt(tensor):
     if tensor.size == 4:
@@ -799,3 +638,9 @@ def Neo_Hooke(F,k,mu):
     C_tangent_fourth = C_vol + C_iso
     
     return xsie, Se, C_tangent_fourth
+
+def UpdateDefaultDict(default_dict:dict,given_dict:dict):
+    filtered_update = {k: given_dict[k] for k in default_dict 
+                    if k in given_dict and isinstance(given_dict[k], type(default_dict[k]))}
+    default_dict.update(filtered_update)
+    return default_dict
