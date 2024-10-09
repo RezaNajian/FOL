@@ -287,6 +287,7 @@ def create_random_fourier_samples(fourier_control,numberof_sample):
 
     return coeffs_matrix,K_matrix
 
+
 def create_random_voronoi_samples(voronoi_control,number_of_sample,dim=2):
     number_seeds = voronoi_control.number_of_seeds
     rangeofValues = voronoi_control.E_values

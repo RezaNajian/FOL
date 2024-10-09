@@ -5,7 +5,7 @@ import os
 import numpy as np
 from fol.loss_functions.mechanical_2D_fe_quad import MechanicalLoss2D
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementLinearResidualBasedSolver
-from fol.controls.voronoi_control2D import VoronoiControl
+from fol.controls.voronoi_control2D import VoronoiControl2D
 from fol.deep_neural_networks.fe_operator_learning import FiniteElementOperatorLearning
 from fol.tools.usefull_functions import *
 
@@ -35,7 +35,7 @@ class TestMechanicalPoly2D(unittest.TestCase):
         self.fe_solver = FiniteElementLinearResidualBasedSolver("linear_fe_solver",self.mechanical_loss,fe_setting)
 
         voronoi_control_settings = {"number_of_seeds":5,"E_values":[1,10]}
-        self.voronoi_control = VoronoiControl("voronoi_control",voronoi_control_settings,self.fe_mesh)
+        self.voronoi_control = VoronoiControl2D("voronoi_control",voronoi_control_settings,self.fe_mesh)
         self.fol = FiniteElementOperatorLearning("fol_mechanical_loss_2d",self.voronoi_control,[self.mechanical_loss],[1],
                                                 "swish",working_directory=self.test_directory)
         self.fe_mesh.Initialize()

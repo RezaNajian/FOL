@@ -61,8 +61,8 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     fol.Initialize()
 
     fol.Train(loss_functions_weights=[1],X_train=coeffs_matrix[eval_id].reshape(-1,1).T,batch_size=1,num_epochs=fol_num_epochs,
-                learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",
-                relative_error=1e-12,NN_params_save_file_name="NN_params_"+working_directory_name)
+                learning_rate=0.0001,optimizer="adam",convergence_criterion="total_loss",
+                relative_error=1e-12,absolute_error=1e-12,NN_params_save_file_name="NN_params_"+working_directory_name)
 
     FOL_UV = np.array(fol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T))
     fe_mesh['U_FOL'] = FOL_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
