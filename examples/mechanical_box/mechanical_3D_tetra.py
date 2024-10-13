@@ -6,7 +6,7 @@ from fol.loss_functions.mechanical_3D_fe_tetra import MechanicalLoss3DTetra
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.fourier_control import FourierControl
-from fol.deep_neural_networks.fe_operator_learning import FiniteElementOperatorLearning
+from fol.deep_neural_networks.explicit_parametric_operator_learning import ExplicitParametricOperatorLearning
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import *
 import pickle
@@ -71,8 +71,62 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     fe_mesh['K'] = np.array(K_matrix[eval_id,:])
 
     # now we need to create, initialize and train fol
-    fol = FiniteElementOperatorLearning("first_fol",fourier_control,[mechanical_loss_3d],[1],
-                                        "tanh",load_NN_params=False,working_directory=working_directory_name)
+
+    # A concise MLP defined via lazy submodule initialization
+
+    # from flax.linen import Module, Dense, compact
+    from collections.abc import Iterable
+    from flax import nnx
+    import jax
+    import orbax.checkpoint as orbax
+
+    class MLP(nnx.Module):
+        def __init__(self, din: int, dmid: int, dout: int, *, rngs: nnx.Rngs):
+            self.dense1 = nnx.Linear(din, dmid, rngs=rngs)
+            self.dense2 = nnx.Linear(dmid, dout, rngs=rngs)
+
+        def __call__(self, x: jax.Array) -> jax.Array:
+            x = self.dense1(x)
+            x = jax.nn.relu(x)
+            x = self.dense2(x)
+            return x
+
+    my_net = MLP(10, 20, 30, rngs=nnx.Rngs(0))
+
+    # state = nnx.state(my_net)
+    # # Save the parameters
+    # checkpointer = orbax.StandardCheckpointer()
+    # current_directory = os.path.abspath(os.getcwd())
+    # full_path = os.path.join(current_directory, "first_flax_orbax")
+    # checkpointer.save(full_path, state,force=True)
+    # checkpointer.wait_until_finished()
+
+    # new_checkpointer = orbax.StandardCheckpointer()
+    # new_state = new_checkpointer.restore(full_path, state)
+    # # update the model with the loaded state
+    # nnx.update(my_net, new_state)
+
+    # exit()
+
+    import optax
+    lr = 1e-3
+    sgd_optimizer = optax.sgd(lr, momentum=0.9, nesterov=False)
+
+    fol = ExplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
+                                             loss_function=mechanical_loss_3d,
+                                             flax_neural_network=my_net,
+                                             optax_optimizer=sgd_optimizer,
+                                             checkpoint_settings={"restore_state":False,
+                                                                  "state_directory":"./first_flax_orbax"},
+                                             working_directory=case_dir)
+
+
+    fol.Initialize()
+
+    exit()
+
+    # fol = DiscreteOperatorLearning("first_fol",fourier_control,[mechanical_loss_3d],[1],
+    #                                 "tanh",load_NN_params=False,working_directory=working_directory_name)
     fol.Initialize()
 
     fol.Train(loss_functions_weights=[1],X_train=coeffs_matrix[eval_id].reshape(-1,1).T,batch_size=1,num_epochs=fol_num_epochs,

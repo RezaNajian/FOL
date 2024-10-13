@@ -3,35 +3,120 @@
  Date: April, 2024
  License: FOL/LICENSE
 """
-from abc import ABC, abstractmethod
-import jax.numpy as jnp
-from typing import Iterator
-import matplotlib.pyplot as plt
-from jax import jit
-from functools import partial
-from jax.example_libraries import optimizers
-import jaxopt
-from tqdm import trange
-from jax.flatten_util import ravel_pytree
 import os
+from abc import ABC,abstractmethod
+from typing import Iterator
+from tqdm import trange
+import matplotlib.pyplot as plt
+import jax
+from jax import jit
+import jax.numpy as jnp
+from jax.flatten_util import ravel_pytree
+from functools import partial
+from flax import nnx
+from optax import GradientTransformation
+import orbax.checkpoint as ocp
+from fol.loss_functions.loss import Loss
+from fol.tools.usefull_functions import *
 
 class DeepNetwork(ABC):
-    """Base abstract deep network class.
+    """
+    Base abstract class for deep learning models.
 
-    The base abstract deep network class has the following responsibilities.
-        1. Initalizes and finalizes the model.
+    This class serves as a foundation for deep neural networks. It provides a 
+    structure to initialize essential components such as the network, optimizer, 
+    loss function, and checkpoint settings. The class is abstract and intended 
+    to be extended by specific model implementations.
+
+    Attributes:
+    ----------
+    name : str
+        The name of the model, used for identification and checkpointing.
+    loss_function : Loss
+        The loss function that the model will optimize during training. 
+        It defines the objective that the network is learning to minimize.
+    flax_neural_network : nnx.Module
+        The Flax neural network module that defines the model's architecture.
+    optax_optimizer : GradientTransformation
+        The Optax optimizer used to update model parameters during training.
+    checkpoint_settings : dict, optional
+        Dictionary that stores settings for saving and restoring checkpoints. 
+        Defaults to an empty dictionary.
 
     """
-    def __init__(self,control_name:str,load_NN_params:bool,NN_params_file_name:str,working_directory:str) -> None:
-        self.__name = control_name
+
+    def __init__(self,
+                 name:str,
+                 loss_function:Loss,
+                 flax_neural_network:nnx.Module,
+                 optax_optimizer:GradientTransformation,
+                 checkpoint_settings:dict={},
+                 working_directory='.'):
+        self.name = name
+        self.loss_function = loss_function
+        self.flax_neural_network = flax_neural_network
+        self.optax_optimizer = optax_optimizer
+        self.checkpoint_settings = checkpoint_settings
         self.working_directory = working_directory
-        self.load_NN_params = load_NN_params
-        self.NN_params_file_name = NN_params_file_name
-        self.train_history_dict = {}
         self.initialized = False
+        self.default_checkpoint_settings = {"restore_state":False,
+                                            "save_state":True,
+                                            "state_directory":'./state'}
+
+    def Initialize(self,reinitialize=False) -> None:
+        """
+        Initialize the deep learning model, its components, and checkpoint settings.
+
+        This method handles the initialization of essential components for the deep network. 
+        It ensures that the loss function is initialized, sets up checkpointing 
+        for saving and restoring model states, and manages reinitialization if needed. 
+        The function is responsible for restoring the model's state from a previous checkpoint, 
+        if specified in the checkpoint settings.
+
+        Attributes:
+        ----------
+        reinitialize : bool, optional
+            If True, forces reinitialization of the model and its components even if 
+            they have been initialized previously. Default is False.
+
+        Raises:
+        -------
+        AssertionError:
+            If the restored neural network state does not match the current state 
+            (based on a comparison using `np.testing.assert_array_equal`).
+        """
+
+        # initialize inputs
+        if not self.loss_function.initialized:
+            self.loss_function.Initialize(reinitialize)
+
+        # create orbax checkpointer
+        self.checkpointer = ocp.StandardCheckpointer()
+
+        self.checkpoint_settings = UpdateDefaultDict(self.default_checkpoint_settings,
+                                                self.checkpoint_settings)
+        
+        # restore flax nn.Module from the file
+        if self.checkpoint_settings["restore_state"]:
+
+            state_directory = self.checkpoint_settings["state_directory"]
+            absolute_path = os.path.abspath(state_directory)
+
+            # get the state
+            nn_state = nnx.state(self.flax_neural_network)
+
+            # restore
+            restored_state = self.checkpointer.restore(absolute_path, nn_state)
+
+            # verify and cross check
+            jax.tree.map(np.testing.assert_array_equal, nn_state, restored_state)
+
+            # now update the model with the loaded state
+            nnx.update(self.flax_neural_network, restored_state)
+
 
     def GetName(self) -> str:
-        return self.__name
+        return self.name
     
     def CreateBatches(self,data: jnp.ndarray, batch_size: int) -> Iterator[jnp.ndarray]:
         """Creates batches for the given inputs.
@@ -39,25 +124,6 @@ class DeepNetwork(ABC):
         """
         for i in range(0, data.shape[0], batch_size):
             yield data[i:i+batch_size, :]
-
-    @abstractmethod
-    def Initialize(self) -> None:
-        """Initializes the network.
-
-        This method initializes the network. This is only called once in the whole training process.
-
-        """
-        pass
-
-    def InitializeParameters(self) -> None:
-        """Initializes the networks parameters.
-
-        This method initializes the network. This is only called once in the whole training process.
-
-        """
-        if self.load_NN_params:
-            _, unravel_params = ravel_pytree(self.NN_params)
-            self.NN_params = unravel_params(jnp.load(os.path.join(self.working_directory, self.NN_params_file_name)))
 
     @partial(jit, static_argnums=(0,))
     def StepAdam(self,opt_itr,opt_state,x_batch,NN_params):

@@ -20,7 +20,11 @@ class VoronoiControl(Control):
         self.fe_mesh = fe_mesh
 
     @print_with_timestamp_and_execution_time
-    def Initialize(self) -> None:
+    def Initialize(self,reinitialize=False) -> None:
+
+        if self.initialized and not reinitialize:
+            return
+
         self.numberof_seeds = self.settings["numberof_seeds"]
         if isinstance(self.settings["k_rangeof_values"],tuple):
             start, end = self.settings["k_rangeof_values"]
@@ -31,6 +35,8 @@ class VoronoiControl(Control):
         # The number 3 stands for the following: x coordinates array, y coordinates array, and K values
         self.num_control_vars = self.numberof_seeds * 3 
         self.num_controlled_vars = self.fe_mesh.GetNumberOfNodes()
+
+        self.initialized = True
     
     def compute_K_host(self,x_coord,y_coord,k_values):
         N = int(self.num_controlled_vars**0.5)
