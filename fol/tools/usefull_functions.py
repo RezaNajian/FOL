@@ -142,6 +142,57 @@ def create_2D_square_model_info_thermal(L,N,T_left,T_right):
     dofs_dict = {"T":{"non_dirichlet_nodes_ids":non_boundary_nodes,"dirichlet_nodes_ids":boundary_nodes,"dirichlet_nodes_dof_value":boundary_values}}
     return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict}
 
+def create_2D_square_model_info_thermal_dirichlet(L,N,T_left,T_bottom,T_right,T_top):
+    # FE init starts here
+    Ne = N - 1  # Number of elements in each direction
+    nx = Ne + 1  # Number of nodes in the x-direction
+    ny = Ne + 1  # Number of nodes in the y-direction
+    ne = Ne * Ne    # Total number of elements
+    # Generate mesh coordinates
+    x = jnp.linspace(0, L, nx)
+    y = jnp.linspace(0, L, ny)
+    X, Y = jnp.meshgrid(x, y)
+    X = X.flatten()
+    Y = Y.flatten()
+    Z = jnp.zeros((Y.shape[-1]))
+    # Gauss quadrature points and weights (for a 2x2 integration)
+    # Create a matrix to store element nodal information
+    elements_nodes = jnp.zeros((ne, 4), dtype=int)
+    # Fill in the elements_nodes with element and node numbers
+    for i in range(Ne):
+        for j in range(Ne):
+            e = i * Ne + j  # Element index
+            # Define the nodes of the current element
+            nodes = jnp.array([i * (Ne + 1) + j, i * (Ne + 1) + j + 1, (i + 1) * (Ne + 1) + j + 1, (i + 1) * (Ne + 1) + j])
+            # Store element and node numbers in the matrix
+            elements_nodes = elements_nodes.at[e].set(nodes) # Node numbers
+
+    element_ids = jnp.arange(0,elements_nodes.shape[0])
+
+    # Identify boundary nodes on the left and right edges
+    left_boundary_nodes = jnp.arange(0, ny * nx, nx)  # Nodes on the left boundary
+    left_boundary_nodes_values = T_left * jnp.ones(left_boundary_nodes.shape)
+    right_boundary_nodes = jnp.arange(nx - 1, ny * nx, nx)  # Nodes on the right boundary
+    right_boundary_nodes_values = T_right * jnp.ones(right_boundary_nodes.shape)
+    # bottom_boundary_nodes = jnp.arange((ny-1)*nx + 1, ny * nx - 1)  # Nodes on the bottom boundary
+    # bottom_boundary_nodes_values = T_bottom * jnp.ones(bottom_boundary_nodes.shape)
+    # top_boundary_nodes = jnp.arange(1, nx - 1)  # Nodes on the top boundary
+    # top_boundary_nodes_values = T_top * jnp.ones(top_boundary_nodes.shape)
+    boundary_nodes = jnp.concatenate([left_boundary_nodes, right_boundary_nodes])
+    boundary_values = jnp.concatenate([left_boundary_nodes_values, right_boundary_nodes_values])
+    # boundary_nodes = jnp.concatenate([left_boundary_nodes, bottom_boundary_nodes, right_boundary_nodes, top_boundary_nodes])
+    # boundary_values = jnp.concatenate([left_boundary_nodes_values, bottom_boundary_nodes_values, right_boundary_nodes_values, top_boundary_nodes_values])
+    non_boundary_nodes = []
+    for i in range(N*N):
+        if not jnp.any(boundary_nodes == i):
+            non_boundary_nodes.append(i)
+    non_boundary_nodes = jnp.array(non_boundary_nodes)
+
+    nodes_dict = {"nodes_ids":jnp.arange(Y.shape[-1]),"X":X,"Y":Y,"Z":Z}
+    elements_dict = {"elements_ids":element_ids,"elements_nodes":elements_nodes}
+    dofs_dict = {"T":{"non_dirichlet_nodes_ids":non_boundary_nodes,"dirichlet_nodes_ids":boundary_nodes,"dirichlet_nodes_dof_value":boundary_values}}
+    return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict}
+
 def box_mesh(Nx, Ny, Nz, Lx, Ly, Lz, case_dir):
 
     cell_type = 'hexahedron'
@@ -322,6 +373,202 @@ def create_clean_directory(case_dir):
     # Create the new directory
     os.makedirs(case_dir)
 
+
+
+def plot_mesh_vec_data_paper_temp(vectors_list:list,title_list:list,plot_name:str):
+    
+    if len(vectors_list) != 3 or len(title_list) != 3:
+        raise ValueError('vector list and title list should have 3 components')
+    fontsize = 16
+    fig, axs = plt.subplots(1, 4, figsize=(20, 8))  # Adjusted to 4 columns
+
+    # Plot the first entity in the first row
+    data = vectors_list[0]
+    N = int((data.reshape(-1, 1).shape[0]) ** 0.5)
+    # im = axs[0, 0].imshow(data.reshape(N, N), cmap='viridis', aspect='equal')
+    # axs[0, 0].set_xticks([])
+    # axs[0, 0].set_yticks([])
+    # axs[0, 0].set_title(title_list[0], fontsize=fontsize)
+    # cbar = fig.colorbar(im, ax=axs[0, 0], pad=0.02, shrink=0.7)
+    # cbar.ax.tick_params(labelsize=fontsize)
+    # cbar.ax.yaxis.labelpad = 5
+    # cbar.ax.tick_params(length=5, width=1)
+
+    # # Plot the same entity with mesh grid in the first row, second column
+    # im = axs[0, 1].imshow(data.reshape(N, N), cmap='bone', aspect='equal')
+    # axs[0, 1].set_xticks([])
+    # axs[0, 1].set_yticks([])
+    # axs[0, 1].set_xticklabels([])  # Remove text on x-axis
+    # axs[0, 1].set_yticklabels([])  # Remove text on y-axis
+    # axs[0, 1].set_title(r'Mesh Grid: {} $\times {}$'.format(N,N), fontsize=fontsize)
+    # axs[0, 1].grid(True, color='red', linestyle='-', linewidth=1)  # Adding solid grid lines with red color
+    # axs[0, 1].xaxis.grid(True)
+    # axs[0, 1].yaxis.grid(True)
+
+    # x_ticks = np.linspace(0, N, N)
+    # y_ticks = np.linspace(0, N, N)
+    # axs[0, 1].set_xticks(x_ticks)
+    # axs[0, 1].set_yticks(y_ticks)
+
+    # cbar = fig.colorbar(im, ax=axs[0, 1], pad=0.02, shrink=0.7)
+    # cbar.ax.tick_params(labelsize=fontsize)
+    # cbar.ax.yaxis.labelpad = 5
+    # cbar.ax.tick_params(length=5, width=1)
+
+    # # Zoomed-in region
+    # zoom_region = data.reshape(N, N)[20:40, 20:40]
+    # im = axs[0, 2].imshow(zoom_region, cmap='bone', aspect='equal')
+    # axs[0, 2].set_xticks([])
+    # axs[0, 2].set_yticks([])
+    # axs[0, 2].set_xticklabels([])  # Remove text on x-axis
+    # axs[0, 2].set_yticklabels([])  # Remove text on y-axis
+    # axs[0, 2].set_title('Zoomed-in: $x \in [0.4, 0.8], y \in [0.2, 0.6]$', fontsize=fontsize)
+    # cbar = fig.colorbar(im, ax=axs[0, 2], pad=0.02, shrink=0.7)
+    # cbar.ax.tick_params(labelsize=fontsize)
+    # cbar.ax.yaxis.labelpad = 5
+    # cbar.ax.tick_params(length=5, width=1)
+
+    # # Plot the mesh grid
+    # axs[0, 2].xaxis.set_major_locator(plt.LinearLocator(21))
+    # axs[0, 2].yaxis.set_major_locator(plt.LinearLocator(21))
+    # axs[0, 2].grid(color='red', linestyle='-', linewidth=2)
+
+    # # Plot cross-sections along x-axis at y=0.5 for U (FOL and FEM) in the second row, fourth column
+    # y_idx = int(N * 0.5)
+    # U1 = vectors_list[0].reshape(N, N)
+    # axs[0, 3].plot(np.linspace(0, 1, N), U1[y_idx, :], label=title_list[0], color='black')
+    # axs[0, 3].set_xlim([0, 1])
+    # #axs[0, 3].set_ylim([min(U1[y_idx, :].min()), max(U1[y_idx, :].max())])
+    # axs[0, 3].set_aspect(aspect='auto')
+    # axs[0, 3].set_title('Cross-section of Q at y=0.5', fontsize=fontsize)
+    # axs[0, 3].legend(fontsize=fontsize)
+    # axs[0, 3].grid(True)
+    # axs[0, 3].set_xlabel('x', fontsize=fontsize)
+    # axs[0, 3].set_ylabel('K', fontsize=fontsize)
+
+
+    # Plot the second entity in the second row
+    data = vectors_list[1]
+    im = axs[0].imshow(data.reshape(N, N), cmap='jet', aspect='equal')
+    axs[0].set_xticks([])
+    axs[0].set_yticks([])
+    axs[0].set_title(title_list[1], fontsize=fontsize)
+    cbar = fig.colorbar(im, ax=axs[0], pad=0.02, shrink=0.7)
+    cbar.ax.tick_params(labelsize=fontsize)
+    cbar.ax.yaxis.labelpad = 5
+    cbar.ax.tick_params(length=5, width=1)
+
+    # Plot the fourth entity in the second row
+    data = vectors_list[2]
+    im = axs[1].imshow(data.reshape(N, N), cmap='jet', aspect='equal')
+    axs[1].set_xticks([])
+    axs[1].set_yticks([])
+    axs[1].set_title(title_list[2], fontsize=fontsize)
+    cbar = fig.colorbar(im, ax=axs[1], pad=0.02, shrink=0.7)
+    cbar.ax.tick_params(labelsize=fontsize)
+    cbar.ax.yaxis.labelpad = 5
+    cbar.ax.tick_params(length=5, width=1)
+
+    # Plot the absolute difference between vectors_list[1] and vectors_list[3] in the third row, second column
+    diff_data_1 = np.abs(vectors_list[1] - vectors_list[2])
+    im = axs[2].imshow(diff_data_1.reshape(N, N), cmap='jet', aspect='equal')
+    axs[2].set_xticks([])
+    axs[2].set_yticks([])
+    axs[2].set_title('Abs. Difference $T$', fontsize=fontsize)
+    cbar = fig.colorbar(im, ax=axs[2], pad=0.02, shrink=0.7)
+    cbar.ax.tick_params(labelsize=fontsize)
+    cbar.ax.yaxis.labelpad = 5
+    cbar.ax.tick_params(length=5, width=1)
+
+    # Plot cross-sections along x-axis at y=0.5 for U (FOL and FEM) in the second row, fourth column
+    y_idx = int(N * 0.5)
+    U1 = vectors_list[1].reshape(N, N)
+    U2 = vectors_list[2].reshape(N, N)
+    axs[3].plot(np.linspace(0, 1, N), U1[y_idx, :], label='T FOL', color='blue')
+    axs[3].plot(np.linspace(0, 1, N), U2[y_idx, :], label='T FEM', color='red')
+    axs[3].set_xlim([0, 1])
+    axs[3].set_ylim([min(U1[y_idx, :].min(), U2[y_idx, :].min()), max(U1[y_idx, :].max(), U2[y_idx, :].max())])
+    axs[3].set_aspect(aspect='auto')
+    axs[3].set_title('Cross-section of T at y=0.5', fontsize=fontsize)
+    axs[3].legend(fontsize=fontsize)
+    axs[3].grid(True)
+    axs[3].set_xlabel('x', fontsize=fontsize)
+    axs[3].set_ylabel('T', fontsize=fontsize)
+
+    plt.tight_layout()
+
+    # Save the figure in multiple formats
+    plt.savefig(plot_name+'_plot_mesh_vec_data.png', dpi=300)
+    plt.savefig(plot_name+'_plot_mesh_vec_data.pdf')
+
+    # plt.show()
+
+def plot_temp_evolution(vectors_list:list,title_list:list,plot_name:str,selected_timesteps:list):
+    
+    if len(vectors_list) != 3 or len(title_list) != 3:
+        raise ValueError('vector list and title list should have 3 components')
+    fontsize = 16
+    fig, axs = plt.subplots(3, 4, figsize=(20, 8))  # Adjusted to 4 columns
+
+    # Plot the first entity in the first row
+    data = vectors_list[0]
+    N = int((data.reshape(-1, 1).shape[0]) ** 0.5)
+    
+    # Plot the second entity in the second row
+    data = vectors_list[1]
+    im = axs[0].imshow(data.reshape(N, N), cmap='jet', aspect='equal')
+    axs[0].set_xticks([])
+    axs[0].set_yticks([])
+    axs[0].set_title(title_list[1], fontsize=fontsize)
+    cbar = fig.colorbar(im, ax=axs[0], pad=0.02, shrink=0.7)
+    cbar.ax.tick_params(labelsize=fontsize)
+    cbar.ax.yaxis.labelpad = 5
+    cbar.ax.tick_params(length=5, width=1)
+
+    # Plot the fourth entity in the second row
+    data = vectors_list[2]
+    im = axs[1].imshow(data.reshape(N, N), cmap='jet', aspect='equal')
+    axs[1].set_xticks([])
+    axs[1].set_yticks([])
+    axs[1].set_title(title_list[2], fontsize=fontsize)
+    cbar = fig.colorbar(im, ax=axs[1], pad=0.02, shrink=0.7)
+    cbar.ax.tick_params(labelsize=fontsize)
+    cbar.ax.yaxis.labelpad = 5
+    cbar.ax.tick_params(length=5, width=1)
+
+    # Plot the absolute difference between vectors_list[1] and vectors_list[3] in the third row, second column
+    diff_data_1 = np.abs(vectors_list[1] - vectors_list[2])
+    im = axs[2].imshow(diff_data_1.reshape(N, N), cmap='jet', aspect='equal')
+    axs[2].set_xticks([])
+    axs[2].set_yticks([])
+    axs[2].set_title('Abs. Difference $T$', fontsize=fontsize)
+    cbar = fig.colorbar(im, ax=axs[2], pad=0.02, shrink=0.7)
+    cbar.ax.tick_params(labelsize=fontsize)
+    cbar.ax.yaxis.labelpad = 5
+    cbar.ax.tick_params(length=5, width=1)
+
+    # Plot cross-sections along x-axis at y=0.5 for U (FOL and FEM) in the second row, fourth column
+    y_idx = int(N * 0.5)
+    U1 = vectors_list[1].reshape(N, N)
+    U2 = vectors_list[2].reshape(N, N)
+    axs[3].plot(np.linspace(0, 1, N), U1[y_idx, :], label='T FOL', color='blue')
+    axs[3].plot(np.linspace(0, 1, N), U2[y_idx, :], label='T FEM', color='red')
+    axs[3].set_xlim([0, 1])
+    axs[3].set_ylim([min(U1[y_idx, :].min(), U2[y_idx, :].min()), max(U1[y_idx, :].max(), U2[y_idx, :].max())])
+    axs[3].set_aspect(aspect='auto')
+    axs[3].set_title('Cross-section of T at y=0.5', fontsize=fontsize)
+    axs[3].legend(fontsize=fontsize)
+    axs[3].grid(True)
+    axs[3].set_xlabel('x', fontsize=fontsize)
+    axs[3].set_ylabel('T', fontsize=fontsize)
+
+    plt.tight_layout()
+
+    # Save the figure in multiple formats
+    plt.savefig(plot_name+'_plot_mesh_vec_data.png', dpi=300)
+    plt.savefig(plot_name+'_plot_mesh_vec_data.pdf')
+
+    # plt.show()
 
 def TensorToVoigt(tensor):
     if tensor.size == 4:
