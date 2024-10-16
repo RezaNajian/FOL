@@ -3,17 +3,21 @@
  Date: April, 2024
  License: FOL/LICENSE
 """
- 
+
+from typing import Iterator, Tuple 
 import jax
+from tqdm import trange
 import jax.numpy as jnp
 from jax import random,jit,vmap
 from functools import partial
+import optax
 from optax import GradientTransformation
 from flax import nnx
 from .deep_network import DeepNetwork
 from fol.tools.decoration_functions import *
 from fol.loss_functions.loss import Loss
 from fol.controls.control import Control
+from fol.tools.usefull_functions import *
 
 class ExplicitParametricOperatorLearning(DeepNetwork):
     """
@@ -77,99 +81,145 @@ class ExplicitParametricOperatorLearning(DeepNetwork):
 
         self.initialized = True
 
+        # now check if the input output layers size match with 
+        # loss and control sizes, this is explicit parametric learning
+        if not hasattr(self.flax_neural_network, 'in_features'):
+            fol_error(f"the provided flax neural netwrok does not have in_features "\
+                      "which specifies the size of the input layer ") 
 
-        
-    @partial(jit, static_argnums=(0,))
-    def ForwardPass(self,x,NN_params):
-        for (w, b) in NN_params[:-1]:
-            x = jnp.dot(x, w) + b
-            x = self.activation_function(x)
-        final_w, final_b = NN_params[-1]
-        x = jnp.dot(x, final_w) + final_b
-        return x
-    
-    @partial(jit, static_argnums=(0,))
-    def flatten_NN_data(self,NN_data):
-        flat_params = []
-        for w_d, b_d in NN_data:
-            flat_params.append(w_d.flatten())
-            flat_params.append(b_d.flatten())
-        return jnp.concatenate(flat_params)
+        if not hasattr(self.flax_neural_network, 'out_features'):
+            fol_error(f"the provided flax neural netwrok does not have out_features "\
+                      "which specifies the size of the output layer") 
 
-    @partial(jit, static_argnums=(0,))
-    def unflatten_data_into_NN(self,flat_data):
-        # Reconstruct the data from the flattened vector
-        unflat_data = []
-        idx = 0
-        for weights, biases in self.NN_params:
-            n_in, n_out = weights.shape
-            num_w = n_in * n_out
-            num_b = n_out
+        if self.flax_neural_network.in_features != self.control.GetNumberOfVariables():
+            fol_error(f"the size of the input layer is {self.flax_neural_network.in_features} "\
+                      f"does not match the size of control variables {self.control.GetNumberOfVariables()}")
 
-            new_weights = flat_data[idx:idx + num_w].reshape(n_in, n_out)
-            idx += num_w
+        if self.flax_neural_network.out_features != self.loss_function.GetNumberOfUnknowns():
+            fol_error(f"the size of the output layer is {self.flax_neural_network.out_features} " \
+                      f" does not match the size of unknowns of the loss function {self.loss_function.GetNumberOfUnknowns()}")
 
-            new_biases = flat_data[idx:idx + num_b]
-            idx += num_b
+    @partial(nnx.jit, static_argnums=(0,))
+    def ComputeSingleLossValue(self,x_set:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module):
+        nn_output = nn_model(x_set[0])
+        control_output = self.control.ComputeControlledVariables(x_set[0])
+        return self.loss_function.ComputeSingleLoss(control_output,nn_output)
 
-            unflat_data.append((new_weights, new_biases))
-        return unflat_data
+    @partial(nnx.jit, static_argnums=(0,))
+    def ComputeBatchLossValue(self,batch_set:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module):
+        batch_losses,(batch_mins,batch_maxs,batch_avgs) = jax.vmap(self.ComputeSingleLossValue,(0,None))(batch_set,nn_model)
+        loss_name = self.loss_function.GetName()
+        total_mean_loss = jnp.mean(batch_losses)
+        return total_mean_loss, ({loss_name+"_min":jnp.min(batch_mins),
+                                         loss_name+"_max":jnp.max(batch_maxs),
+                                         loss_name+"_avg":jnp.mean(batch_avgs),
+                                         "total_loss":total_mean_loss})
 
-    @partial(jit, static_argnums=(0,))
-    def ComputeTotalLossValueAndGrad(self,NN_params,batch_input):
-        total_loss = 0.0
-        total_loss_grads = jnp.zeros((self.total_number_of_NN_params))
-        losses_dict = {}
-        def ComputeSingleLossValue(x_input,NN_params,loss_index):
-            NN_output = self.ForwardPass(x_input,NN_params)
-            control_output = self.control.ComputeControlledVariables(x_input)
-            return self.loss_functions[loss_index].ComputeSingleLoss(control_output,NN_output)
-
-        def ComputeBatchSingleLossValue(batch_input,NN_params,loss_index):
-            batch_losses,(batch_mins,batch_maxs,batch_avgs) = vmap(ComputeSingleLossValue, (0,None,None))(batch_input,NN_params,loss_index)
-            loss_name = self.loss_functions[loss_index].GetName()
-            return jnp.mean(batch_losses), ({loss_name+"_min":jnp.min(batch_mins),loss_name+"_max":jnp.max(batch_maxs),loss_name+"_avg":jnp.mean(batch_avgs)})        
-
-        for loss_index,loss_func in enumerate(self.loss_functions):
-            (batch_loss,(batch_dict)),batch_loss_grads = jax.value_and_grad(ComputeBatchSingleLossValue,argnums=1,has_aux=True)(batch_input,NN_params,loss_index)
-            losses_dict.update(batch_dict)
-            loss_weight = self.loss_functions_weights[loss_index]
-            total_loss += loss_weight * batch_loss
-            flat_loss_grads = self.flatten_NN_data(batch_loss_grads)
-            flat_loss_grads /= jnp.linalg.norm(flat_loss_grads,ord=2)
-            total_loss_grads = jnp.add(total_loss_grads,loss_weight * flat_loss_grads)
-        
-        total_loss_grads /= jnp.linalg.norm(total_loss_grads,ord=2)
-        final_grads = self.unflatten_data_into_NN(total_loss_grads)
-
-        return (total_loss, {**losses_dict,"total_loss":total_loss}), final_grads
+    @partial(nnx.jit, static_argnums=(0,))
+    def TrainStep(self, nn_model:nnx.Module, optimizer:nnx.Optimizer, batch_set:Tuple[jnp.ndarray, jnp.ndarray]):
+        (batch_loss, batch_dict), batch_grads = nnx.value_and_grad(self.ComputeBatchLossValue,argnums=1,has_aux=True) \
+                                                                    (batch_set,nn_model)
+        optimizer.update(batch_grads)
+        return batch_dict
 
     @print_with_timestamp_and_execution_time
-    def Train(self, loss_functions_weights:list, X_train, batch_size=100, num_epochs=1000, learning_rate=0.01, 
-              optimizer="adam",convergence_criterion="true_loss",relative_error=1e-6,absolute_error=1e-6, plot_list=[],
-              plot_rate=1,plot_save_rate=1000,save_NN_params=True, NN_params_save_file_name="Fourier_FOL_Thermal_params.npy"):
+    def Train(self, train_set:Tuple[jnp.ndarray, jnp.ndarray], test_set:Tuple[jnp.ndarray, jnp.ndarray] = (jnp.array([]), jnp.array([])), 
+              batch_size:int=100, convergence_settings:dict={}, plot_settings:dict={}, save_settings:dict={}):
 
-        if len(loss_functions_weights) != len(self.loss_functions):
-            raise ValueError(f"Number of loss functions weights do not match with number of loss functions !")
+        self.default_convergence_settings = {"num_epochs":1000,"convergence_criterion":"total_loss",
+                                             "relative_error":1e-8,"absolute_error":1e-8}
+        convergence_settings = UpdateDefaultDict(self.default_convergence_settings,convergence_settings)
+        
+        self.default_plot_settings = {"plot_list":[],"plot_rate":1,"plot_save_rate":5}
+        plot_settings = UpdateDefaultDict(self.default_plot_settings,plot_settings)
 
-        self.loss_functions_weights = loss_functions_weights
-        super().Train(X_train,batch_size,num_epochs,learning_rate, 
-              optimizer,convergence_criterion,relative_error,absolute_error,plot_list,
-              plot_rate,plot_save_rate,save_NN_params, NN_params_save_file_name)
-    
-    @print_with_timestamp_and_execution_time    
-    def ReTrain(self, loss_functions_weights:list, X_train, batch_size=100, num_epochs=1000,  
-                convergence_criterion="true_loss",relative_error=1e-6,absolute_error=1e-6,reset_train_history=False,
-                plot_list=[],plot_rate=1,plot_save_rate=1000,save_NN_params=True, NN_params_save_file_name="Fourier_FOL_Thermal_params.npy"):
+        self.default_save_settings = {"save_nn_model":True}
+        save_settings = UpdateDefaultDict(self.default_save_settings,save_settings)
 
-        if len(loss_functions_weights) != len(self.loss_functions):
-            raise ValueError(f"Number of loss functions weights do not match with number of loss functions !")
+        def update_batch_history_dict(batches_hist_dict,batch_dict,batch_index):
+            # fill the batch dict
+            if batch_index == 0:
+                for key, value in batch_dict.items():
+                    batches_hist_dict[key] = [value]
+            else:
+                for key, value in batch_dict.items():
+                    batches_hist_dict[key].append(value)
 
-        self.loss_functions_weights = loss_functions_weights
-        super().ReTrain(X_train,batch_size,num_epochs,convergence_criterion,
-                        relative_error,absolute_error,reset_train_history,
-                        plot_list,plot_rate,plot_save_rate,save_NN_params, 
-                        NN_params_save_file_name)
+            return batches_hist_dict
+        
+        def update_history_dict(hist_dict,batch_hist_dict):
+            for key, value in batch_hist_dict.items():
+                if "max" in key:
+                    batch_hist_dict[key] = [max(value)]
+                elif "min" in key:
+                    batch_hist_dict[key] = [min(value)]
+                elif "avg" in key:
+                    batch_hist_dict[key] = [sum(value)/len(value)]
+                elif "total" in key:
+                    batch_hist_dict[key] = [sum(value)]
+
+            if len(hist_dict.keys())==0:
+                hist_dict = batch_hist_dict
+            else:
+                for key, value in batch_hist_dict.items():
+                    hist_dict[key].extend(value)
+
+            return hist_dict
+
+        train_history_dict = {}
+        test_history_dict = {}
+        pbar = trange(convergence_settings["num_epochs"])
+        converged = False
+        for epoch in pbar:
+            train_set_hist_dict = {}
+            test_set_hist_dict = {}
+            # now loop over batches
+            batch_index = 0 
+            for batch_set in self.CreateBatches(train_set, batch_size):
+                batch_dict = self.TrainStep(self.flax_neural_network,self.nnx_optimizer,batch_set)
+                train_set_hist_dict = update_batch_history_dict(train_set_hist_dict,batch_dict,batch_index)
+
+                if len(test_set[0])>0:
+                    _,test_dict = self.ComputeBatchLossValue(test_set,self.flax_neural_network)
+                    test_set_hist_dict = update_batch_history_dict(test_set_hist_dict,test_dict,batch_index)
+                else:
+                    test_dict = {}
+                
+                batch_index += 1
+
+            train_history_dict = update_history_dict(train_history_dict,train_set_hist_dict)
+            print_dict = {"train_loss":train_history_dict["total_loss"][-1]}
+            if len(test_set[0])>0:
+                test_history_dict = update_history_dict(test_history_dict,test_set_hist_dict)
+                print_dict = {"train_loss":train_history_dict["total_loss"][-1],
+                              "test_loss":test_history_dict["total_loss"][-1]}
+
+            # plot the histories
+            if (epoch>0 and epoch %plot_settings["plot_save_rate"] == 0) or converged:
+                self.PlotHistoryDict(plot_settings,train_history_dict,test_history_dict)
+                
+            pbar.set_postfix(print_dict)
+
+    def PlotHistoryDict(self,plot_settings:dict,train_history_dict:dict,test_history_dict:dict):
+        
+        plot_rate = plot_settings["plot_rate"]
+        plot_list = plot_settings["plot_list"]
+        plt.figure(figsize=(10, 5))
+        for key,value in train_history_dict.items():
+            if len(value)>0 and (len(plot_list)==0 or key in plot_list):
+                plt.semilogy(value[::plot_rate], label=f"train_{key}") 
+
+        for key,value in test_history_dict.items():
+            if len(value)>0 and (len(plot_list)==0 or key in plot_list):
+                plt.semilogy(value[::plot_rate], label=f"test_{key}") 
+        plt.title("Training History")
+        plt.xlabel(str(plot_rate) + " Epoch")
+        plt.ylabel("Log Value")
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(os.path.join(self.working_directory,"training_history.png"), bbox_inches='tight')
+        plt.close()
+
 
     @print_with_timestamp_and_execution_time
     @partial(jit, static_argnums=(0,))

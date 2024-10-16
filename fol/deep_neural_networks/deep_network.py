@@ -5,7 +5,7 @@
 """
 import os
 from abc import ABC,abstractmethod
-from typing import Iterator
+from typing import Iterator,Tuple
 from tqdm import trange
 import matplotlib.pyplot as plt
 import jax
@@ -17,6 +17,7 @@ from flax import nnx
 from optax import GradientTransformation
 import orbax.checkpoint as ocp
 from fol.loss_functions.loss import Loss
+from fol.tools.decoration_functions import *
 from fol.tools.usefull_functions import *
 
 class DeepNetwork(ABC):
@@ -94,7 +95,7 @@ class DeepNetwork(ABC):
         self.checkpointer = ocp.StandardCheckpointer()
 
         self.checkpoint_settings = UpdateDefaultDict(self.default_checkpoint_settings,
-                                                self.checkpoint_settings)
+                                                     self.checkpoint_settings)
         
         # restore flax nn.Module from the file
         if self.checkpoint_settings["restore_state"]:
@@ -114,16 +115,33 @@ class DeepNetwork(ABC):
             # now update the model with the loaded state
             nnx.update(self.flax_neural_network, restored_state)
 
+        # initialize the nnx optimizer
+        self.nnx_optimizer = nnx.Optimizer(self.flax_neural_network, self.optax_optimizer)
 
     def GetName(self) -> str:
         return self.name
     
-    def CreateBatches(self,data: jnp.ndarray, batch_size: int) -> Iterator[jnp.ndarray]:
+    def CreateBatches(self,data: Tuple[jnp.ndarray, jnp.ndarray], batch_size: int) -> Iterator[jnp.ndarray]:
         """Creates batches for the given inputs.
 
         """
-        for i in range(0, data.shape[0], batch_size):
-            yield data[i:i+batch_size, :]
+
+        # Unpack data into data_x and data_y
+        if len(data) > 1:
+            data_x, data_y = data  
+            if data_x.shape[0] != data_y.shape[0]:
+                fol_error("data_x and data_y must have the same number of samples.")
+        else:
+            data_x = data[0]
+
+        # Iterate over the dataset and yield batches of data_x and data_y
+        for i in range(0, data_x.shape[0], batch_size):
+            batch_x = data_x[i:i+batch_size, :]
+            if len(data) > 1:
+                batch_y = data_y[i:i+batch_size, :]
+                yield batch_x, batch_y
+            else:
+                yield batch_x,
 
     @partial(jit, static_argnums=(0,))
     def StepAdam(self,opt_itr,opt_state,x_batch,NN_params):
@@ -249,18 +267,7 @@ class DeepNetwork(ABC):
         """
         pass
 
-    def PlotTrainHistory(self,plot_list,plot_rate):
-        plt.figure(figsize=(10, 5))
-        for key,value in self.train_history_dict.items():
-            if len(value)>0 and (len(plot_list)==0 or key in plot_list):
-                plt.semilogy(value[::plot_rate], label=key) 
-        plt.title("Training History")
-        plt.xlabel(str(plot_rate) + " Epoch")
-        plt.ylabel("Log Value")
-        plt.legend()
-        plt.grid(True)
-        plt.savefig(os.path.join(self.working_directory,"training_history.png"), bbox_inches='tight')
-        plt.close()
+
 
 
 
