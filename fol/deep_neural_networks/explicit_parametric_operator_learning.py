@@ -126,11 +126,11 @@ class ExplicitParametricOperatorLearning(DeepNetwork):
     def Train(self, train_set:Tuple[jnp.ndarray, jnp.ndarray], test_set:Tuple[jnp.ndarray, jnp.ndarray] = (jnp.array([]), jnp.array([])), 
               batch_size:int=100, convergence_settings:dict={}, plot_settings:dict={}, save_settings:dict={}):
 
-        self.default_convergence_settings = {"num_epochs":1000,"convergence_criterion":"total_loss",
+        self.default_convergence_settings = {"num_epochs":100,"convergence_criterion":"total_loss",
                                              "relative_error":1e-8,"absolute_error":1e-8}
         convergence_settings = UpdateDefaultDict(self.default_convergence_settings,convergence_settings)
         
-        self.default_plot_settings = {"plot_list":[],"plot_rate":1,"plot_save_rate":5}
+        self.default_plot_settings = {"plot_list":["total_loss"],"plot_rate":1,"plot_save_rate":100}
         plot_settings = UpdateDefaultDict(self.default_plot_settings,plot_settings)
 
         self.default_save_settings = {"save_nn_model":True}
@@ -194,11 +194,37 @@ class ExplicitParametricOperatorLearning(DeepNetwork):
                 print_dict = {"train_loss":train_history_dict["total_loss"][-1],
                               "test_loss":test_history_dict["total_loss"][-1]}
 
+            pbar.set_postfix(print_dict)
+
+            # check converged
+            converged = self.CheckConvergence(train_history_dict,convergence_settings)
+
             # plot the histories
             if (epoch>0 and epoch %plot_settings["plot_save_rate"] == 0) or converged:
                 self.PlotHistoryDict(plot_settings,train_history_dict,test_history_dict)
-                
-            pbar.set_postfix(print_dict)
+
+            if epoch<convergence_settings["num_epochs"]-1 and converged:
+                break    
+
+    def CheckConvergence(self,train_history_dict:dict,convergence_settings:dict):
+        convergence_criterion = convergence_settings["convergence_criterion"]
+        absolute_error = convergence_settings["absolute_error"]
+        relative_error = convergence_settings["relative_error"]
+        num_epochs = convergence_settings["num_epochs"]
+        current_epoch = len(train_history_dict[convergence_criterion])
+        # check for absolute and relative errors and convergence
+        if abs(train_history_dict[convergence_criterion][-1])<absolute_error:
+            return True
+        if current_epoch>1:
+            if abs(train_history_dict[convergence_criterion][-1] -
+                   train_history_dict[convergence_criterion][-2])<relative_error:
+                return True
+            elif current_epoch>=num_epochs:
+                return True
+            else:
+                return False
+        else:
+            return False        
 
     def PlotHistoryDict(self,plot_settings:dict,train_history_dict:dict,test_history_dict:dict):
         
@@ -219,7 +245,6 @@ class ExplicitParametricOperatorLearning(DeepNetwork):
         plt.grid(True)
         plt.savefig(os.path.join(self.working_directory,"training_history.png"), bbox_inches='tight')
         plt.close()
-
 
     @print_with_timestamp_and_execution_time
     @partial(jit, static_argnums=(0,))
