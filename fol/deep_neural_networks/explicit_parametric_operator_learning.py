@@ -4,13 +4,11 @@
  License: FOL/LICENSE
 """
 
-from typing import Iterator, Tuple 
+from typing import Tuple 
 import jax
-from tqdm import trange
 import jax.numpy as jnp
-from jax import random,jit,vmap
+from jax import jit,vmap
 from functools import partial
-import optax
 from optax import GradientTransformation
 from flax import nnx
 from .deep_network import DeepNetwork
@@ -115,146 +113,11 @@ class ExplicitParametricOperatorLearning(DeepNetwork):
                                          loss_name+"_avg":jnp.mean(batch_avgs),
                                          "total_loss":total_mean_loss})
 
-    @partial(nnx.jit, static_argnums=(0,))
-    def TrainStep(self, nn_model:nnx.Module, optimizer:nnx.Optimizer, batch_set:Tuple[jnp.ndarray, jnp.ndarray]):
-        (batch_loss, batch_dict), batch_grads = nnx.value_and_grad(self.ComputeBatchLossValue,argnums=1,has_aux=True) \
-                                                                    (batch_set,nn_model)
-        optimizer.update(batch_grads)
-        return batch_dict
-
-    @print_with_timestamp_and_execution_time
-    def Train(self, train_set:Tuple[jnp.ndarray, jnp.ndarray], test_set:Tuple[jnp.ndarray, jnp.ndarray] = (jnp.array([]), jnp.array([])), 
-              batch_size:int=100, convergence_settings:dict={}, plot_settings:dict={}, save_settings:dict={}):
-
-        self.default_convergence_settings = {"num_epochs":100,"convergence_criterion":"total_loss",
-                                             "relative_error":1e-8,"absolute_error":1e-8}
-        convergence_settings = UpdateDefaultDict(self.default_convergence_settings,convergence_settings)
-        
-        self.default_plot_settings = {"plot_list":["total_loss"],"plot_rate":1,"plot_save_rate":100}
-        plot_settings = UpdateDefaultDict(self.default_plot_settings,plot_settings)
-
-        self.default_save_settings = {"save_nn_model":True}
-        save_settings = UpdateDefaultDict(self.default_save_settings,save_settings)
-
-        def update_batch_history_dict(batches_hist_dict,batch_dict,batch_index):
-            # fill the batch dict
-            if batch_index == 0:
-                for key, value in batch_dict.items():
-                    batches_hist_dict[key] = [value]
-            else:
-                for key, value in batch_dict.items():
-                    batches_hist_dict[key].append(value)
-
-            return batches_hist_dict
-        
-        def update_history_dict(hist_dict,batch_hist_dict):
-            for key, value in batch_hist_dict.items():
-                if "max" in key:
-                    batch_hist_dict[key] = [max(value)]
-                elif "min" in key:
-                    batch_hist_dict[key] = [min(value)]
-                elif "avg" in key:
-                    batch_hist_dict[key] = [sum(value)/len(value)]
-                elif "total" in key:
-                    batch_hist_dict[key] = [sum(value)]
-
-            if len(hist_dict.keys())==0:
-                hist_dict = batch_hist_dict
-            else:
-                for key, value in batch_hist_dict.items():
-                    hist_dict[key].extend(value)
-
-            return hist_dict
-
-        train_history_dict = {}
-        test_history_dict = {}
-        pbar = trange(convergence_settings["num_epochs"])
-        converged = False
-        for epoch in pbar:
-            train_set_hist_dict = {}
-            test_set_hist_dict = {}
-            # now loop over batches
-            batch_index = 0 
-            for batch_set in self.CreateBatches(train_set, batch_size):
-                batch_dict = self.TrainStep(self.flax_neural_network,self.nnx_optimizer,batch_set)
-                train_set_hist_dict = update_batch_history_dict(train_set_hist_dict,batch_dict,batch_index)
-
-                if len(test_set[0])>0:
-                    _,test_dict = self.ComputeBatchLossValue(test_set,self.flax_neural_network)
-                    test_set_hist_dict = update_batch_history_dict(test_set_hist_dict,test_dict,batch_index)
-                else:
-                    test_dict = {}
-                
-                batch_index += 1
-
-            train_history_dict = update_history_dict(train_history_dict,train_set_hist_dict)
-            print_dict = {"train_loss":train_history_dict["total_loss"][-1]}
-            if len(test_set[0])>0:
-                test_history_dict = update_history_dict(test_history_dict,test_set_hist_dict)
-                print_dict = {"train_loss":train_history_dict["total_loss"][-1],
-                              "test_loss":test_history_dict["total_loss"][-1]}
-
-            pbar.set_postfix(print_dict)
-
-            # check converged
-            converged = self.CheckConvergence(train_history_dict,convergence_settings)
-
-            # plot the histories
-            if (epoch>0 and epoch %plot_settings["plot_save_rate"] == 0) or converged:
-                self.PlotHistoryDict(plot_settings,train_history_dict,test_history_dict)
-
-            if epoch<convergence_settings["num_epochs"]-1 and converged:
-                break    
-
-    def CheckConvergence(self,train_history_dict:dict,convergence_settings:dict):
-        convergence_criterion = convergence_settings["convergence_criterion"]
-        absolute_error = convergence_settings["absolute_error"]
-        relative_error = convergence_settings["relative_error"]
-        num_epochs = convergence_settings["num_epochs"]
-        current_epoch = len(train_history_dict[convergence_criterion])
-        # check for absolute and relative errors and convergence
-        if abs(train_history_dict[convergence_criterion][-1])<absolute_error:
-            return True
-        if current_epoch>1:
-            if abs(train_history_dict[convergence_criterion][-1] -
-                   train_history_dict[convergence_criterion][-2])<relative_error:
-                return True
-            elif current_epoch>=num_epochs:
-                return True
-            else:
-                return False
-        else:
-            return False        
-
-    def PlotHistoryDict(self,plot_settings:dict,train_history_dict:dict,test_history_dict:dict):
-        
-        plot_rate = plot_settings["plot_rate"]
-        plot_list = plot_settings["plot_list"]
-        plt.figure(figsize=(10, 5))
-        for key,value in train_history_dict.items():
-            if len(value)>0 and (len(plot_list)==0 or key in plot_list):
-                plt.semilogy(value[::plot_rate], label=f"train_{key}") 
-
-        for key,value in test_history_dict.items():
-            if len(value)>0 and (len(plot_list)==0 or key in plot_list):
-                plt.semilogy(value[::plot_rate], label=f"test_{key}") 
-        plt.title("Training History")
-        plt.xlabel(str(plot_rate) + " Epoch")
-        plt.ylabel("Log Value")
-        plt.legend()
-        plt.grid(True)
-        plt.savefig(os.path.join(self.working_directory,"training_history.png"), bbox_inches='tight')
-        plt.close()
-
     @print_with_timestamp_and_execution_time
     @partial(jit, static_argnums=(0,))
     def Predict(self,batch_X):
-        def ForwardPassWithBC(x_input,NN_params):
-            y_output = self.ForwardPass(x_input,NN_params)
-            for loss_function in self.loss_functions:
-                y_output_full = loss_function.GetFullDofVector(x_input,y_output)
-            return y_output_full
-        return jnp.squeeze(vmap(ForwardPassWithBC, (0,None))(batch_X,self.NN_params))
+        batch_Y = self.flax_neural_network(batch_X)
+        return vmap(self.loss_function.GetFullDofVector)(batch_X,batch_Y)
 
     def Finalize(self):
         pass

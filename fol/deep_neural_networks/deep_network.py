@@ -8,12 +8,10 @@ from abc import ABC,abstractmethod
 from typing import Iterator,Tuple
 from tqdm import trange
 import matplotlib.pyplot as plt
-import jax
-from jax import jit
 import jax.numpy as jnp
-from jax.flatten_util import ravel_pytree
 from functools import partial
 from flax import nnx
+import orbax.checkpoint as orbax
 from optax import GradientTransformation
 import orbax.checkpoint as ocp
 from fol.loss_functions.loss import Loss
@@ -62,7 +60,7 @@ class DeepNetwork(ABC):
         self.initialized = False
         self.default_checkpoint_settings = {"restore_state":False,
                                             "save_state":True,
-                                            "state_directory":'./state'}
+                                            "state_directory":'./flax_state'}
 
     def Initialize(self,reinitialize=False) -> None:
         """
@@ -109,9 +107,6 @@ class DeepNetwork(ABC):
             # restore
             restored_state = self.checkpointer.restore(absolute_path, nn_state)
 
-            # verify and cross check
-            jax.tree.map(np.testing.assert_array_equal, nn_state, restored_state)
-
             # now update the model with the loaded state
             nnx.update(self.flax_neural_network, restored_state)
 
@@ -143,120 +138,144 @@ class DeepNetwork(ABC):
             else:
                 yield batch_x,
 
-    @partial(jit, static_argnums=(0,))
-    def StepAdam(self,opt_itr,opt_state,x_batch,NN_params):
-        (total_loss, batch_dict), final_grads = self.ComputeTotalLossValueAndGrad(NN_params,x_batch)
-        updated_state = self.opt_update(opt_itr, final_grads, opt_state)
-        updated_NN_params = self.get_params(updated_state)
-        return updated_NN_params,updated_state,batch_dict
-    
-    @partial(jit, static_argnums=(0,))
-    def StepLBFGS(self,opt_itr,opt_state,x_batch,NN_params):
-        updated_NN_params, updated_state = self.solver.update(params=NN_params, state=opt_state, batch_input=x_batch)
-        return updated_NN_params,updated_state,updated_state.aux
+    @partial(nnx.jit, static_argnums=(0,))
+    def TrainStep(self, nn_model:nnx.Module, optimizer:nnx.Optimizer, batch_set:Tuple[jnp.ndarray, jnp.ndarray]):
+        (batch_loss, batch_dict), batch_grads = nnx.value_and_grad(self.ComputeBatchLossValue,argnums=1,has_aux=True) \
+                                                                    (batch_set,nn_model)
+        optimizer.update(batch_grads)
+        return batch_dict
 
-    def Run(self,X_train,batch_size,num_epochs,convergence_criterion,relative_error,
-            absolute_error,plot_list,plot_rate,plot_save_rate):
+    @print_with_timestamp_and_execution_time
+    def Train(self, train_set:Tuple[jnp.ndarray, jnp.ndarray], test_set:Tuple[jnp.ndarray, jnp.ndarray] = (jnp.array([]), jnp.array([])), 
+              batch_size:int=100, convergence_settings:dict={}, plot_settings:dict={}, save_settings:dict={}):
+
+        self.default_convergence_settings = {"num_epochs":100,"convergence_criterion":"total_loss",
+                                             "relative_error":1e-8,"absolute_error":1e-8}
+        convergence_settings = UpdateDefaultDict(self.default_convergence_settings,convergence_settings)
         
-        pbar = trange(num_epochs)
-        step_iteration = 0
+        self.default_plot_settings = {"plot_list":["total_loss"],"plot_rate":1,"plot_save_rate":100}
+        plot_settings = UpdateDefaultDict(self.default_plot_settings,plot_settings)
+
+        self.default_save_settings = {"save_nn_model":True}
+        save_settings = UpdateDefaultDict(self.default_save_settings,save_settings)
+
+        def update_batch_history_dict(batches_hist_dict,batch_dict,batch_index):
+            # fill the batch dict
+            if batch_index == 0:
+                for key, value in batch_dict.items():
+                    batches_hist_dict[key] = [value]
+            else:
+                for key, value in batch_dict.items():
+                    batches_hist_dict[key].append(value)
+
+            return batches_hist_dict
+        
+        def update_history_dict(hist_dict,batch_hist_dict):
+            for key, value in batch_hist_dict.items():
+                if "max" in key:
+                    batch_hist_dict[key] = [max(value)]
+                elif "min" in key:
+                    batch_hist_dict[key] = [min(value)]
+                elif "avg" in key:
+                    batch_hist_dict[key] = [sum(value)/len(value)]
+                elif "total" in key:
+                    batch_hist_dict[key] = [sum(value)]
+
+            if len(hist_dict.keys())==0:
+                hist_dict = batch_hist_dict
+            else:
+                for key, value in batch_hist_dict.items():
+                    hist_dict[key].extend(value)
+
+            return hist_dict
+
+        train_history_dict = {}
+        test_history_dict = {}
+        pbar = trange(convergence_settings["num_epochs"])
         converged = False
         for epoch in pbar:
-            batches_dict = {}
+            train_set_hist_dict = {}
+            test_set_hist_dict = {}
             # now loop over batches
             batch_index = 0 
-            for batch in self.CreateBatches(X_train, batch_size):
-                self.NN_params,self.opt_state,step_dict = self.step_function(step_iteration,self.opt_state,batch,self.NN_params)
-                # fill the batch dict
-                if batch_index == 0:
-                    for key, value in step_dict.items():
-                        batches_dict[key] = [value]
+            for batch_set in self.CreateBatches(train_set, batch_size):
+                batch_dict = self.TrainStep(self.flax_neural_network,self.nnx_optimizer,batch_set)
+                train_set_hist_dict = update_batch_history_dict(train_set_hist_dict,batch_dict,batch_index)
+
+                if len(test_set[0])>0:
+                    _,test_dict = self.ComputeBatchLossValue(test_set,self.flax_neural_network)
+                    test_set_hist_dict = update_batch_history_dict(test_set_hist_dict,test_dict,batch_index)
                 else:
-                    for key, value in step_dict.items():
-                        batches_dict[key].append(value)
-                step_iteration += 1
+                    test_dict = {}
+                
                 batch_index += 1
 
-            for key, value in batches_dict.items():
-                if "max" in key:
-                    batches_dict[key] = [max(value)]
-                elif "min" in key:
-                    batches_dict[key] = [min(value)]
-                elif "avg" in key:
-                    batches_dict[key] = [sum(value)/len(value)]
-                elif "total" in key:
-                    batches_dict[key] = [sum(value)]
+            train_history_dict = update_history_dict(train_history_dict,train_set_hist_dict)
+            print_dict = {"train_loss":train_history_dict["total_loss"][-1]}
+            if len(test_set[0])>0:
+                test_history_dict = update_history_dict(test_history_dict,test_set_hist_dict)
+                print_dict = {"train_loss":train_history_dict["total_loss"][-1],
+                              "test_loss":test_history_dict["total_loss"][-1]}
 
-            if not self.train_history_dict:
-                self.train_history_dict.update(batches_dict)
-            else:
-                for key, value in batches_dict.items():
-                    self.train_history_dict[key].extend(value)
+            pbar.set_postfix(print_dict)
 
-            pbar.set_postfix({convergence_criterion: self.train_history_dict[convergence_criterion][-1]})
-
-            # check for absolute and relative errors and convergence
-            if self.train_history_dict[convergence_criterion][-1]<absolute_error:
-                converged = True
-            elif epoch>0 and abs(self.train_history_dict[convergence_criterion][-1] -
-                 self.train_history_dict[convergence_criterion][-2])<relative_error:
-                converged = True
+            # check converged
+            converged = self.CheckConvergence(train_history_dict,convergence_settings)
 
             # plot the histories
-            if epoch %plot_save_rate == 0 or epoch==num_epochs-1 or converged:
-                self.PlotTrainHistory(plot_list,plot_rate)
+            if (epoch>0 and epoch %plot_settings["plot_save_rate"] == 0) or converged:
+                self.PlotHistoryDict(plot_settings,train_history_dict,test_history_dict)
 
-            if converged:
-                break
+            if epoch<convergence_settings["num_epochs"]-1 and converged:
+                break    
 
-    def Train(self,X_train, batch_size=100, num_epochs=1000, learning_rate=0.01,optimizer="adam",
-              convergence_criterion="total_loss",relative_error=1e-8,absolute_error=1e-8,plot_list=[],
-              plot_rate=1,plot_save_rate=1000,save_NN_params=True, NN_params_save_file_name="NN_params.npy") -> None:
-        """Trains the network.
+        # Save the flax model
+        if save_settings["save_nn_model"]:
+            state_directory = self.checkpoint_settings["state_directory"]
+            absolute_path = os.path.abspath(state_directory)
+            checkpointer = orbax.PyTreeCheckpointer()
+            checkpointer.save(absolute_path, nnx.state(self.flax_neural_network),
+                              force=True)
 
-        This method trains the network.
+    def CheckConvergence(self,train_history_dict:dict,convergence_settings:dict):
+        convergence_criterion = convergence_settings["convergence_criterion"]
+        absolute_error = convergence_settings["absolute_error"]
+        relative_error = convergence_settings["relative_error"]
+        num_epochs = convergence_settings["num_epochs"]
+        current_epoch = len(train_history_dict[convergence_criterion])
+        # check for absolute and relative errors and convergence
+        if abs(train_history_dict[convergence_criterion][-1])<absolute_error:
+            return True
+        if current_epoch>1:
+            if abs(train_history_dict[convergence_criterion][-1] -
+                   train_history_dict[convergence_criterion][-2])<relative_error:
+                return True
+            elif current_epoch>=num_epochs:
+                return True
+            else:
+                return False
+        else:
+            return False        
 
-        """
+    def PlotHistoryDict(self,plot_settings:dict,train_history_dict:dict,test_history_dict:dict):
+        
+        plot_rate = plot_settings["plot_rate"]
+        plot_list = plot_settings["plot_list"]
+        plt.figure(figsize=(10, 5))
+        for key,value in train_history_dict.items():
+            if len(value)>0 and (len(plot_list)==0 or key in plot_list):
+                plt.semilogy(value[::plot_rate], label=f"train_{key}") 
 
-        # here specify the optimizer
-        if optimizer =="adam":
-            self.opt_init, self.opt_update, self.get_params = optimizers.adam(learning_rate)
-            self.opt_state = self.opt_init(self.NN_params)
-            self.step_function = self.StepAdam
-        elif optimizer=="LBFGS":
-            self.solver = jaxopt.LBFGS(fun=self.ComputeTotalLossValueAndGrad,value_and_grad=True,has_aux=True,stepsize=-1,
-                                       linesearch="backtracking",stop_if_linesearch_fails=True,maxiter=num_epochs,verbose=False)
-            self.opt_state = self.solver.init_state(init_params=self.NN_params,batch_input=X_train)
-            self.step_function = self.StepLBFGS
-
-        # now run the training
-        self.Run(X_train,batch_size,num_epochs,convergence_criterion,
-                 relative_error,absolute_error,plot_list,plot_rate,plot_save_rate)
-
-        # save optimized NN parameters
-        if save_NN_params:
-            flat_params, _ = ravel_pytree(self.NN_params)
-            jnp.save(os.path.join(self.working_directory,NN_params_save_file_name), flat_params)
-
-    def ReTrain(self,X_train,batch_size=100,num_epochs=1000,convergence_criterion="total_loss",
-                relative_error=1e-8,absolute_error=1e-8,reset_train_history=False,plot_list=[],
-                plot_rate=1,plot_save_rate=1000,save_NN_params=True,NN_params_save_file_name="NN_params.npy") -> None:
-        """ReTrains the network.
-
-        This method retrains the network.
-
-        """
-        if reset_train_history:
-            self.train_history_dict = {}
-
-        # now run the training
-        self.Run(X_train,batch_size,num_epochs,convergence_criterion,relative_error,
-                 absolute_error,plot_list,plot_rate,plot_save_rate)
-
-        # save optimized NN parameters
-        if save_NN_params:
-            flat_params, _ = ravel_pytree(self.NN_params)
-            jnp.save(os.path.join(self.working_directory,NN_params_save_file_name), flat_params)
+        for key,value in test_history_dict.items():
+            if len(value)>0 and (len(plot_list)==0 or key in plot_list):
+                plt.semilogy(value[::plot_rate], label=f"test_{key}") 
+        plt.title("Training History")
+        plt.xlabel(str(plot_rate) + " Epoch")
+        plt.ylabel("Log Value")
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(os.path.join(self.working_directory,"training_history.png"), bbox_inches='tight')
+        plt.close()
 
     @abstractmethod
     def Finalize(self) -> None:
