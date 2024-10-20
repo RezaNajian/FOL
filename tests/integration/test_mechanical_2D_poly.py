@@ -5,8 +5,8 @@ from flax import nnx
 import jax 
 import os
 import numpy as np
-from fol.loss_functions.mechanical_2D_fe_quad_neohooke import MechanicalLoss2D
-from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
+from fol.loss_functions.mechanical_2D_fe_quad import MechanicalLoss2D
+from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.controls.voronoi_control2D import VoronoiControl2D
 from fol.deep_neural_networks.explicit_parametric_operator_learning import ExplicitParametricOperatorLearning
 from fol.tools.usefull_functions import *
@@ -41,8 +41,8 @@ class TestMechanicalPoly2D(unittest.TestCase):
 
         self.fe_mesh.Initialize()
         self.mechanical_loss.Initialize()
-        self.voronoi_control.Initialize()
-        
+        self.voronoi_control.Initialize()        
+
         # design NN for learning
         class MLP(nnx.Module):
             def __init__(self, in_features: int, dmid: int, out_features: int, *, rngs: nnx.Rngs):
@@ -73,7 +73,7 @@ class TestMechanicalPoly2D(unittest.TestCase):
                                                         checkpoint_settings={"restore_state":False,
                                                         "state_directory":self.test_directory+"/flax_state"},
                                                         working_directory=self.test_directory)
-        
+
         self.fol.Initialize()
         self.fe_solver.Initialize()
 
@@ -81,14 +81,15 @@ class TestMechanicalPoly2D(unittest.TestCase):
 
     def test_compute(self):
         self.fol.Train(train_set=(self.coeffs_matrix[-1].reshape(-1,1).T,),
-                       convergence_settings={"num_epochs":200,"relative_error":1e-12})
+                       convergence_settings={"num_epochs":200,
+                                             "relative_error":1e-12})
         
         UV_FOL = np.array(self.fol.Predict(self.coeffs_matrix[-1,:].reshape(-1,1).T)).reshape(-1)
         UV_FEM = np.array(self.fe_solver.Solve(self.K_matrix,np.zeros(UV_FOL.shape)))
         l2_error = 100 * np.linalg.norm(UV_FOL-UV_FEM,ord=2)/ np.linalg.norm(UV_FEM,ord=2)
-        # self.assertLessEqual(l2_error, 1)    
+        self.assertLessEqual(l2_error, 10)    
 
-        if False:
+        if self.debug_mode=="false":
             shutil.rmtree(self.test_directory)
         else:
             plot_mesh_vec_data(1,[self.K_matrix,UV_FOL[0::2],UV_FOL[1::2]],["K","U","V"],file_name=os.path.join(self.test_directory,"FOL-KUV-dist.png"))
