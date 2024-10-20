@@ -99,12 +99,50 @@ class ExplicitParametricOperatorLearning(DeepNetwork):
 
     @partial(nnx.jit, static_argnums=(0,))
     def ComputeSingleLossValue(self,x_set:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module):
+        """
+        Computes the loss value for a single data point.
+
+        This method computes the network's output for a single input data point, 
+        applies the control parameters, and evaluates the loss function.
+
+        Parameters
+        ----------
+        x_set : Tuple[jnp.ndarray, jnp.ndarray]
+            A tuple containing the input data and corresponding target labels.
+        nn_model : nnx.Module
+            The Flax neural network model.
+
+        Returns
+        -------
+        jnp.ndarray
+            The loss value for the single data point.
+        """
         nn_output = nn_model(x_set[0])
         control_output = self.control.ComputeControlledVariables(x_set[0])
         return self.loss_function.ComputeSingleLoss(control_output,nn_output)
 
     @partial(nnx.jit, static_argnums=(0,))
     def ComputeBatchLossValue(self,batch_set:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module):
+        """
+        Computes the loss values for a batch of data.
+
+        This method computes the network's output for a batch of input data, applies the control parameters,
+        and evaluates the loss function for the entire batch. It aggregates the results and returns
+        summary statistics (min, max, avg) for the batch losses.
+
+        Parameters
+        ----------
+        batch_set : Tuple[jnp.ndarray, jnp.ndarray]
+            A tuple containing a batch of input data and corresponding target labels.
+        nn_model : nnx.Module
+            The Flax neural network model.
+
+        Returns
+        -------
+        Tuple[jnp.ndarray, dict]
+            The mean loss for the batch and a dictionary of loss statistics (min, max, avg, total).
+        """
+
         batch_losses,(batch_mins,batch_maxs,batch_avgs) = jax.vmap(self.ComputeSingleLossValue,(0,None))(batch_set,nn_model)
         loss_name = self.loss_function.GetName()
         total_mean_loss = jnp.mean(batch_losses)
@@ -116,6 +154,22 @@ class ExplicitParametricOperatorLearning(DeepNetwork):
     @print_with_timestamp_and_execution_time
     @partial(jit, static_argnums=(0,))
     def Predict(self,batch_X):
+        """
+        Generates predictions for a batch of input data.
+
+        This method computes the network's predictions for a batch of input data. 
+        It maps the network outputs to the full degree of freedom (DoF) vector using the loss function.
+
+        Parameters
+        ----------
+        batch_X : jnp.ndarray
+            A batch of input data.
+
+        Returns
+        -------
+        jnp.ndarray
+            The predicted outputs, mapped to the full DoF vector.
+        """
         batch_Y = self.flax_neural_network(batch_X)
         return vmap(self.loss_function.GetFullDofVector)(batch_X,batch_Y)
 

@@ -114,11 +114,34 @@ class DeepNetwork(ABC):
         self.nnx_optimizer = nnx.Optimizer(self.flax_neural_network, self.optax_optimizer)
 
     def GetName(self) -> str:
+        """
+        Returns the name of the model.
+
+        Returns
+        -------
+        str
+            The name of the deep learning model.
+        """
         return self.name
     
     def CreateBatches(self,data: Tuple[jnp.ndarray, jnp.ndarray], batch_size: int) -> Iterator[jnp.ndarray]:
-        """Creates batches for the given inputs.
+        """
+        Creates batches from the input dataset.
 
+        This method splits the input data into batches of a specified size, 
+        yielding input data and optionally target labels if provided.
+
+        Parameters
+        ----------
+        data : Tuple[jnp.ndarray, jnp.ndarray]
+            A tuple of input data and target labels.
+        batch_size : int
+            The number of samples per batch.
+
+        Yields
+        ------
+        Iterator[jnp.ndarray]
+            Batches of input data and optionally target labels.
         """
 
         # Unpack data into data_x and data_y
@@ -140,6 +163,27 @@ class DeepNetwork(ABC):
 
     @partial(nnx.jit, static_argnums=(0,))
     def TrainStep(self, nn_model:nnx.Module, optimizer:nnx.Optimizer, batch_set:Tuple[jnp.ndarray, jnp.ndarray]):
+        """
+        Performs a single training step.
+
+        This method computes the loss for a batch of data, calculates gradients, and updates 
+        the model's parameters using the provided optimizer.
+
+        Parameters
+        ----------
+        nn_model : nnx.Module
+            The Flax neural network model.
+        optimizer : nnx.Optimizer
+            The flax optimizer to apply the gradients to the model.
+        batch_set : Tuple[jnp.ndarray, jnp.ndarray]
+            A batch of input data and corresponding target labels.
+
+        Returns
+        -------
+        dict
+            A dictionary containing information about the training step, such as loss values.
+        """
+
         (batch_loss, batch_dict), batch_grads = nnx.value_and_grad(self.ComputeBatchLossValue,argnums=1,has_aux=True) \
                                                                     (batch_set,nn_model)
         optimizer.update(batch_grads)
@@ -148,6 +192,29 @@ class DeepNetwork(ABC):
     @print_with_timestamp_and_execution_time
     def Train(self, train_set:Tuple[jnp.ndarray, jnp.ndarray], test_set:Tuple[jnp.ndarray, jnp.ndarray] = (jnp.array([]), jnp.array([])), 
               batch_size:int=100, convergence_settings:dict={}, plot_settings:dict={}, save_settings:dict={}):
+
+        """
+        Trains the neural network model over multiple epochs.
+
+        This method trains the model on the provided training dataset, evaluates performance on the test set, 
+        updates model parameters using gradient descent, and tracks training history. It also checks for convergence 
+        and saves the model state during the process.
+
+        Parameters
+        ----------
+        train_set : Tuple[jnp.ndarray, jnp.ndarray]
+            Training dataset consisting of input data and corresponding target labels.
+        test_set : Tuple[jnp.ndarray, jnp.ndarray], optional
+            Test dataset for validation, defaults to empty arrays.
+        batch_size : int, optional
+            Number of samples per batch, default is 100.
+        convergence_settings : dict, optional
+            Settings to control the convergence criteria, defaults to an empty dict.
+        plot_settings : dict, optional
+            Settings to control the plotting of training history, defaults to an empty dict.
+        save_settings : dict, optional
+            Settings to control saving of the trained model, defaults to an empty dict.
+        """
 
         self.default_convergence_settings = {"num_epochs":100,"convergence_criterion":"total_loss",
                                              "relative_error":1e-8,"absolute_error":1e-8}
@@ -238,6 +305,26 @@ class DeepNetwork(ABC):
                               force=True)
 
     def CheckConvergence(self,train_history_dict:dict,convergence_settings:dict):
+        """
+        Checks whether the training process has converged.
+
+        This method evaluates the training history based on the defined convergence 
+        criterion, absolute error, or relative error. If the conditions are met, 
+        it returns True, indicating convergence.
+
+        Parameters
+        ----------
+        train_history_dict : dict
+            The history of the training loss values.
+        convergence_settings : dict
+            The settings that define when convergence occurs, including absolute error 
+            and relative error thresholds.
+
+        Returns
+        -------
+        bool
+            True if the model has converged, False otherwise.
+        """
         convergence_criterion = convergence_settings["convergence_criterion"]
         absolute_error = convergence_settings["absolute_error"]
         relative_error = convergence_settings["relative_error"]
@@ -258,7 +345,32 @@ class DeepNetwork(ABC):
             return False        
 
     def PlotHistoryDict(self,plot_settings:dict,train_history_dict:dict,test_history_dict:dict):
-        
+        """
+        Plots the training and testing history.
+
+        This method generates and saves a plot of the training and test history based on 
+        the specified settings. It supports logging various metrics, such as loss, 
+        across training epochs and allows customization of which metrics to plot.
+
+        Parameters
+        ----------
+        plot_settings : dict
+            Dictionary containing settings for the plot, such as:
+            - 'plot_rate': int, how often to plot the history (in terms of epochs).
+            - 'plot_list': list of str, the metrics to be plotted (e.g., 'total_loss').
+        train_history_dict : dict
+            A dictionary where keys are metric names (e.g., 'total_loss') and values 
+            are lists of the corresponding metric values during training.
+        test_history_dict : dict
+            A dictionary where keys are metric names (e.g., 'total_loss') and values 
+            are lists of the corresponding metric values during testing.
+
+        Returns
+        -------
+        None
+            The function does not return any values but saves the plot to a file 
+            in the working directory as 'training_history.png'.
+        """
         plot_rate = plot_settings["plot_rate"]
         plot_list = plot_settings["plot_list"]
         plt.figure(figsize=(10, 5))
