@@ -88,8 +88,8 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
             return x
 
     fol_net = MLP(fourier_control.GetNumberOfVariables(),1, 
-                      mechanical_loss_3d.GetNumberOfUnknowns(), 
-                      rngs=nnx.Rngs(0))
+                  mechanical_loss_3d.GetNumberOfUnknowns(), 
+                  rngs=nnx.Rngs(0))
 
     # create fol optax-based optimizer
     scheduler = optax.exponential_decay(
@@ -107,7 +107,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
                                              flax_neural_network=fol_net,
                                              optax_optimizer=chained_transform,
                                              checkpoint_settings={"restore_state":False,
-                                                                  "state_directory":f"./{working_directory_name}/flax_state"},
+                                            "state_directory":f"./{working_directory_name}/flax_state"},
                                              working_directory=case_dir)
 
     fol.Initialize()
