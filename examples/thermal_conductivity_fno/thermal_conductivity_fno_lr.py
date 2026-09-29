@@ -190,11 +190,7 @@ for _ in range(0,num_time_steps):
     T_fes = jnp.vstack((T_fes,T_fe_next.flatten()))
     
     # predict dynamics with ifol
-    print(f"[DEBUGGING]:::heterogeneity shape: {heterogeneity.shape}")
-    print(f"[DEBUGGING]:::T_ifol shape: {T_ifol_current.shape}")
     current_field = np.stack([heterogeneity,T_ifol_current],axis=-1)
-    print(f"[DEBUGGING]:::train_fields shape: {train_fields.shape}")
-    print(f"[DEBUGGING]:::current_field shape: {current_field.shape}")
     T_ifol_next = pi_fno_pr_learning.Predict(current_field[None,:,:])
     T_ifol_current = T_ifol_next.flatten()
     T_ifols = jnp.vstack((T_ifols,T_ifol_next.flatten()))
