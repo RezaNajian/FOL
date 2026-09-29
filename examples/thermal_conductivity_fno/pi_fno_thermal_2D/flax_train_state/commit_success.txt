@@ -1,0 +1,1 @@
+Checkpoint commit was successful to C:\Users\kianoosht\Access.e.v\folax_thesis_negin\folax\examples\thermal_conductivity_fno\pi_fno_thermal_2D\flax_train_state
