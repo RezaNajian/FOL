@@ -24,7 +24,7 @@ from thermal_usefull_functions import *
 
 # jax.config.update('jax_default_matmul_precision','high')
 # jax.config.update('jax_enable_x64', True)
-train_from_scratch = False
+train_from_scratch = True
 # directory & save handling
 working_directory_name = 'pi_fno_thermal_2D'
 case_dir = os.path.join('.', working_directory_name)
@@ -46,7 +46,7 @@ fourier_control_settings = {"x_freqs":np.array([2,4,6]),"y_freqs":np.array([2,4,
 fourier_control = FourierControl("fourier_control",fourier_control_settings,fe_mesh)
 fourier_control.Initialize()
 
-number_of_random_samples = 200
+number_of_random_samples = 1000
 # create some random conductivities
 if train_from_scratch:
     
@@ -146,7 +146,8 @@ pi_fno_pr_learning = PhysicsInformedFourierParametricOperatorLearning(name="pi_f
 pi_fno_pr_learning.Initialize()
 
 train_start_id = 0
-train_end_id = 2
+train_end_id = 500
+assert train_end_id <= number_of_random_samples, f"train_end_id should be less than {number_of_random_samples}!"
 
 if train_from_scratch:
     pi_fno_pr_learning.Train(train_set=(train_fields[train_start_id:train_end_id,:],),

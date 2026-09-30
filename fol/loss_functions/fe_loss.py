@@ -593,7 +593,7 @@ class FiniteElementLoss(Loss):
         """
 
         batch_params = jnp.atleast_2d(batch_params)
-        batch_params = batch_params.reshape(batch_params.shape[0], -1)
+        # batch_params = batch_params.reshape(batch_params.shape[0], -1)
         batch_dofs = jnp.atleast_2d(batch_dofs)
         batch_dofs = batch_dofs.reshape(batch_dofs.shape[0], -1)
         BC_applied_batch_dofs = self.GetFullDofVector(batch_params,batch_dofs)

@@ -178,13 +178,13 @@ class TransientThermalLoss(ThermalLoss):
                                          nodal_next_temps[elements_nodes[element_id]],
                                          nodal_heterogeneity[elements_nodes[element_id]])
 
-    def ComputeElementsEnergies(self,nodal_current_temps:jnp.array,nodal_next_temps:jnp.array):
+    def ComputeElementsEnergies(self,nodal_current_input:jnp.array,nodal_next_temps:jnp.array):
         """
         Compute element energy contributions for all elements in parallel.
 
         Args:
-            nodal_current_temps (jax.numpy.ndarray):
-                Current-step nodal temperatures.
+            nodal_current_input (jax.numpy.ndarray):
+                Current-step nodal temperatures and heterogeneity.
             nodal_next_temps (jax.numpy.ndarray):
                 Next-step nodal temperatures.
 
@@ -196,9 +196,9 @@ class TransientThermalLoss(ThermalLoss):
                         (self.fe_mesh.GetElementsIds(self.element_type),
                         self.fe_mesh.GetElementsNodes(self.element_type),
                         self.fe_mesh.GetNodesCoordinates(),
-                        nodal_current_temps,
+                        nodal_current_input[:,1],
                         nodal_next_temps,
-                        self.material_settings["k0"])
+                        nodal_current_input[:,0])
 
     def ComputeElementResidualAndJacobian(self,
                                           elem_xyz:jnp.array,
