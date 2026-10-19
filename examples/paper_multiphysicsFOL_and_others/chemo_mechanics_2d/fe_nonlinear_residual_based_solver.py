@@ -95,6 +95,7 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBased
                     applied_BC_dofs, trial_res_norm, step_size, line_search_accepted = self._PerformLineSearch(
                         current_control_vars, applied_BC_dofs, delta_dofs, res_norm)
                     effective_delta_dofs = step_size * delta_dofs
+                    step_accepted = line_search_accepted
                     delta_norm = jnp.linalg.norm(effective_delta_dofs,ord=2)
                     if line_search_accepted:
                         fol_info(f"line search accepted; step_size:{step_size},trial_residuals_norm:{trial_res_norm}")
@@ -102,9 +103,10 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBased
                         fol_info(f"line search reached minimum step; step_size:{step_size},trial_residuals_norm:{trial_res_norm}")
                 else:
                     delta_norm = jnp.linalg.norm(delta_dofs,ord=2)
+                    step_accepted = True
                     applied_BC_dofs = applied_BC_dofs.at[:].add(delta_dofs)
 
-                if delta_norm<self.nonlinear_solver_settings["rel_tol"]:
+                if step_accepted and delta_norm<self.nonlinear_solver_settings["rel_tol"]:
                     fol_info(f"converged; iterations:{i+1},delta_norm:{delta_norm},residuals_norm:{res_norm}")
                     break
                 elif i+1==self.nonlinear_solver_settings["maxiter"]:

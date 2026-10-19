@@ -16,46 +16,6 @@ from fol.loss_functions.loss import Loss
 from fol.controls.control import Control
 from fol.tools.usefull_functions import *
 from fol.deep_neural_networks.nns import HyperNetwork
-from fol.loss_functions.thermo_mechanics import ThermoMechanicsLoss3DTetra as _ThermoMechanicsLoss3DTetra
-
-
-class CastingThermoMechanicsLoss3DTetra(_ThermoMechanicsLoss3DTetra):
-    """Casting-local bridge between legacy FE assembly and named element fields."""
-
-    def ComputeElementResidualAndJacobian(
-        self,
-        elem_xyz,
-        elem_controls,
-        elem_dofs,
-        elem_t0,
-        elem_BC,
-        elem_mask_BC,
-        transpose_jac,
-    ):
-        elem_dofs_by_node = jnp.reshape(
-            elem_dofs, (-1, self.number_dofs_per_node)
-        )
-        elem_var_dict = {
-            "XYZ": elem_xyz,
-            "K": jnp.reshape(elem_controls, (-1,)),
-            "T0": jnp.reshape(elem_t0, (-1,)),
-        }
-        for dof_index, dof_name in enumerate(self.dofs):
-            dof_values = elem_dofs_by_node[:, dof_index]
-            elem_var_dict[dof_name] = dof_values
-            elem_var_dict[dof_name + "_mask"] = jnp.zeros_like(dof_values)
-            elem_var_dict[dof_name + "_mask_value"] = jnp.zeros_like(dof_values)
-
-        _, residual, jacobian = self.ComputeElement(elem_var_dict)
-        jacobian = jax.lax.cond(
-            jnp.asarray(transpose_jac),
-            lambda matrix: matrix.T,
-            lambda matrix: matrix,
-            jacobian,
-        )
-        return self.ApplyDirichletBCOnElementResidualAndJacobian(
-            residual, jacobian, elem_BC, elem_mask_BC
-        )
 
 class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning):
     """
@@ -128,49 +88,34 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
         self.latent_step = latent_step_size
         self.num_latent_iterations = num_latent_iterations
 
-    def _BuildThermoMechanicalBatchVariables(self, control_output, nn_output):
-        """Build the named, batched fields expected by ``FiniteElementLoss``."""
+    def _ComputeThermoMechanicalLoss(self, control_output, nn_output):
+        """Evaluate total and per-physics losses using the legacy FE API."""
         num_nodes = self.loss_function.fe_mesh.GetNumberOfNodes()
         num_dofs = self.loss_function.number_dofs_per_node
-
-        predicted_fields = jnp.reshape(nn_output, (num_nodes, num_dofs))
-        boundary_mask = jnp.zeros(num_nodes * num_dofs)
-        boundary_values = jnp.zeros(num_nodes * num_dofs)
-        boundary_mask = boundary_mask.at[self.loss_function.dirichlet_indices].set(1.0)
-        boundary_values = boundary_values.at[self.loss_function.dirichlet_indices].set(control_output)
-
-        boundary_mask = jnp.reshape(boundary_mask, (num_nodes, num_dofs))
-        boundary_values = jnp.reshape(boundary_values, (num_nodes, num_dofs))
-
-        batch_vars = {
-            "K": jnp.ones((1, num_nodes)),
-            "T0": jnp.reshape(self.loss_function.thermal_loss_settings["T0"], (1, num_nodes)),
-        }
-        for dof_index, dof_name in enumerate(self.loss_function.GetDOFs()):
-            batch_vars[dof_name] = predicted_fields[None, :, dof_index]
-            batch_vars[dof_name + "_mask"] = boundary_mask[None, :, dof_index]
-            batch_vars[dof_name + "_mask_value"] = boundary_values[None, :, dof_index]
-
-        return batch_vars
-
-    def _ComputeThermoMechanicalLoss(self, control_output, nn_output):
-        """Evaluate total and per-physics losses using the named-field FE API."""
-        batch_vars = self._BuildThermoMechanicalBatchVariables(control_output, nn_output)
+        full_dofs = nn_output.at[self.loss_function.dirichlet_indices].set(control_output)
+        nodal_dofs = full_dofs.reshape(num_nodes, num_dofs)
         connectivity = self.loss_function.fe_mesh.GetElementsNodes(
             self.loss_function.element_type
         )
-        element_vars = {
-            "XYZ": self.loss_function.fe_mesh.GetNodesCoordinates()[connectivity, :]
-        }
-        for key, value in batch_vars.items():
-            element_vars[key] = value[0, connectivity]
+        element_xyz = self.loss_function.fe_mesh.GetNodesCoordinates()[connectivity, :]
+        element_controls = jnp.ones(num_nodes)[connectivity]
+        element_dofs = nodal_dofs[connectivity].reshape(connectivity.shape[0], -1, 1)
+        element_t0 = self.loss_function.thermal_loss_settings["T0"][connectivity]
 
         element_thermal_losses, element_mechanical_losses = jax.vmap(
-            lambda variables: (
-                self.loss_function.ComputeElementThermal(variables)[0],
-                self.loss_function.ComputeElementMechanical(variables)[0],
+            lambda xyze, de, tuvwe, t0e: (
+                self.loss_function.ComputeElementThermal(
+                    xyze, de, tuvwe[self.loss_function.elem_t_local_ids]
+                )[0],
+                self.loss_function.ComputeElementMechanical(
+                    xyze,
+                    de,
+                    tuvwe[self.loss_function.elem_t_local_ids],
+                    tuvwe[self.loss_function.elem_uvw_local_ids],
+                    t0e,
+                )[0],
             )
-        )(element_vars)
+        )(element_xyz, element_controls, element_dofs, element_t0)
         thermal_loss = jnp.sum(element_thermal_losses)
         mechanical_loss = jnp.sum(element_mechanical_losses)
         batch_loss = (thermal_loss + mechanical_loss) \

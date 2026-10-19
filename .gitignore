@@ -9,7 +9,10 @@ build/
 dist/
 _build/
 play_ground/
-flax_state/
+**/flax_state/
+**/flax_train_state/
+**/flax_final_state/
+.ipynb_checkpoints/
 *-py-env
 *py-env
 *.zarr

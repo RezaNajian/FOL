@@ -3,9 +3,7 @@ import os
 # os.environ["JAX_PLATFORM_NAME"] = "cpu"
 import optax
 import numpy as np
-from meta_implicit_parametric_operator_learning_no_ad import (
-    CastingThermoMechanicsLoss3DTetra as ThermoMechanicsLoss3DTetra,
-)
+from fol.loss_functions.thermo_mechanics import ThermoMechanicsLoss3DTetra
 # from fol.loss_functions.thermal import ThermalLoss3DTetra
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.identity_control import IdentityControl

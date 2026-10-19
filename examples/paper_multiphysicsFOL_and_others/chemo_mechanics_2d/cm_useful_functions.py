@@ -15,8 +15,8 @@ import pyvista as pv
 
 def get_triangles_from_pv_mesh(pv_mesh):
     """
-    PyVista PolyData / UnstructuredGrid の両方に対応して
-    matplotlib Triangulation 用の三角形 connectivity を返す。
+    Return triangle connectivity for Matplotlib triangulation from either a
+    PyVista ``PolyData`` or ``UnstructuredGrid`` mesh.
     """
     mesh = pv_mesh.extract_surface().triangulate()
 
@@ -55,8 +55,8 @@ def get_field_style(field_name, values):
 
     elif "_U" in field_name or "_V" in field_name:
         cmap = "turbo"
-        absmax = np.nanmax(np.abs(values))
-        vmin, vmax = -absmax, absmax
+        vmin = 0.0
+        vmax = max(float(np.nanmax(values)), np.finfo(float).eps)
 
     elif "Stress" in field_name:
         cmap = "plasma"
@@ -118,7 +118,7 @@ def plot_fields_matplotlib(
     if save_path is not None:
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
 
-    plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
 
 def reshape_T_U_to_nodewise(FE_TUV, num_nodes):
     T = FE_TUV[0:num_nodes]
@@ -222,11 +222,11 @@ def generate_morph_pattern_smooth(points):
     center2 = (0.6, 0.4)
     radius2 = 0.2
     dist2 = np.sqrt((X - center2[0])**2 + ((1 - Y) - center2[1])**2)
-    smooth2 = sigmoid(radius2 - dist2, sharpness=100)  # 0→1 inside radius
+    smooth2 = sigmoid(radius2 - dist2, sharpness=100)  # Transitions from 0 to 1 inside the radius
 
     # Combine inclusions smoothly (e.g., max or sum)
     inclusion = smooth2
-    hetero_morph += (1.0 - 0.3) * inclusion  # smoothly go from 0.3 → 1.0
+    hetero_morph += (1.0 - 0.3) * inclusion  # Smoothly transition from 0.3 to 1.0
 
     return hetero_morph
 
@@ -389,7 +389,8 @@ def GetHeatFluxVector_consistent(loss_function, fe_mesh, conductivity, temperatu
     Return nodal heat flux q_node of shape (num_nodes, dim)
     by CONSISTENT (non-lumped) L2 projection of Gauss-point fluxes.
 
-    Solve: M q = b,  M_ij = ∫ N_i N_j dΩ,  b_i = ∫ N_i q_gp dΩ
+    Solve ``M q = b``, where ``M_ij`` and ``b_i`` are the corresponding
+    domain integrals of ``N_i N_j`` and ``N_i q_gp``.
     """
     element_type = loss_function.element_type
     elem_nodes = fe_mesh.GetElementsNodes(element_type)   # (ne, nen)
@@ -435,12 +436,12 @@ def GetHeatFluxVector_consistent(loss_function, fe_mesh, conductivity, temperatu
         N_g, q_g, Jw_g = jax.vmap(at_gp, in_axes=(0, 0))(gp_points, gp_weights)
         # N_g: (ngp, nen), q_g: (ngp, dim), Jw_g: (ngp,)
 
-        # element mass (consistent): Me = Σ (N^T N) Jw
-        # Me_ij = Σ N_i N_j Jw
+        # Consistent element mass: Me = sum((N^T N) Jw)
+        # Me_ij = sum(N_i N_j Jw)
         # Me = (N_g[:, :, None] * N_g[:, None, :] * Jw_g[:, None, None]).sum(axis=0)  # (nen, nen)
         Me = N_g.T @ (N_g * Jw_g[:, None])    # (nen, nen)
 
-        # element RHS: be_i = Σ N_i q_g Jw
+        # Element right-hand side: be_i = sum(N_i q_g Jw)
         # be = (N_g[:, :, None] * (q_g * Jw_g[:, None])[:, None, :]).sum(axis=0)      # (nen, dim)
         be = N_g.T @ (q_g * Jw_g[:, None])    # (nen, dim)
 
@@ -664,16 +665,16 @@ def plot_mesh_vec_data_thermal_2Dthermomech(
 
 def plot_mesh_vec_data_thermal_2Dheatflux(
     L, vectors6,
-    col_titles=('iFOL', 'FEM', 'Absolute error'),  # 上の列タイトル
+    col_titles=('iFOL', 'FEM', 'Absolute error'),  # Column titles shown above the plots
     cmap='inferno',
-    share_scale_per_col=False,                 # Trueなら列ごとにvmin/vmax共有
+    share_scale_per_col=False,  # If True, share vmin/vmax within each column
     fig_size=(14, 8),
     file_name=None, show=True
 ):
     assert len(vectors6) == 6 
     fig, axs = plt.subplots(2, 3, figsize=fig_size, constrained_layout=True, squeeze=False)
 
-    # vmin/vmax の決定（列ごとに共有 or 独立）
+    # Determine vmin/vmax either per column or independently.
     if share_scale_per_col:
         col_vmins, col_vmaxs = [], []
         for j in range(3):
@@ -698,21 +699,21 @@ def plot_mesh_vec_data_thermal_2Dheatflux(
             im = ax.imshow(data.reshape(N, N), cmap=cmap, extent=[0, L, 0, L],
                            vmin=vmin, vmax=vmax)
 
-            # 軸内カラーバー（はみ出さない）
+            # Place the colorbar without extending beyond the axes.
             # cax = inset_axes(ax, width="3%", height="100%", loc='center right', borderpad=0.5)
             cbar = fig.colorbar(im)
             cbar.ax.tick_params(labelsize=16)
 
-            # 一番上の行に列タイトル
+            # Add column titles to the top row.
             if i == 0 and col_titles:
                 ax.set_title(col_titles[j], fontsize=13, pad=6)
 
-            # # 一番左の列に行タイトル
+            # Add row titles to the leftmost column, if requested.
             # if j == 0 and row_titles:
             #     ax.text(-0.08, 0.5, row_titles[i], va='center', ha='right',
             #             rotation=90, transform=ax.transAxes, fontsize=13)
     fig.set_constrained_layout_pads(w_pad=0.1, h_pad=0.12, wspace=0.08, hspace=0.08)
-    # 保存または表示
+    # Save or display the figure.
     if file_name:
         plt.savefig(file_name, dpi=300)
     if show:

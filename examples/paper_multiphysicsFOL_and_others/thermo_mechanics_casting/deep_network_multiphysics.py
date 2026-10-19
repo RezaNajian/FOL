@@ -486,14 +486,14 @@ class DeepNetwork(ABC):
                 # update least values in case of restore
                 if train_checkpoint_settings["least_loss_checkpointing"] and restore_nnx_state_settings['restore'] and epoch==0:
                     if plot_settings["multiphysics"]:
-                        train_checkpoint_settings["least_loss"] = step_fn(state,train_set)[0]
+                        train_checkpoint_settings["least_loss"] = test_fn(state,train_set)[0]
                     else:
-                        train_checkpoint_settings["least_loss"] = step_fn(state,train_set)
+                        train_checkpoint_settings["least_loss"] = test_fn(state,train_set)
                 if test_checkpoint_settings["least_loss_checkpointing"] and restore_nnx_state_settings['restore'] and epoch==0:
                     if plot_settings["multiphysics"]:
-                        test_checkpoint_settings["least_loss"] = step_fn(state,test_set)[0]
+                        test_checkpoint_settings["least_loss"] = test_fn(state,test_set)[0]
                     else:
-                        test_checkpoint_settings["least_loss"] = step_fn(state,test_set)
+                        test_checkpoint_settings["least_loss"] = test_fn(state,test_set)
 
                 # parallel batching and train step
                 rng, sub = jax.random.split(rng)

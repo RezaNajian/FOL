@@ -10,9 +10,7 @@ from fol.controls.fourier_control import FourierControl
 from fol.controls.dirichlet_control import DirichletControl
 from deep_o_net_parametric_operator_learning import PhysicsInformedDeepONetParametricOperatorLearningDBC
 from deep_o_nets import DeepONet
-from meta_implicit_parametric_operator_learning_no_ad import (
-    CastingThermoMechanicsLoss3DTetra as ThermoMechanicsLoss3DTetra,
-)
+from fol.loss_functions.thermo_mechanics import ThermoMechanicsLoss3DTetra
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
@@ -151,10 +149,8 @@ deeponet_learning.Train(train_set=(bc_matrix[train_start_id:train_end_id,:],),
           convergence_settings={"num_epochs":num_epochs,
                                 "relative_error":1e-100,
                                 "absolute_error":1e-100},
-          working_directory=case_dir,
-          plot_settings={"plot_list":["total_loss","phy1_loss","phy2_loss"],
-               "plot_frequency":1,"save_frequency":100,
-               "save_directory":case_dir,"multiphysics":True})
+          plot_settings={"multiphysics":True},
+          working_directory=case_dir)
 
 # num_steps = 1
 FOL_TUVW = np.array(deeponet_learning.Predict((bc_matrix[-1,:].reshape(-1,1))))  

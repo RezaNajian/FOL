@@ -74,34 +74,31 @@ class PhysicsInformedDeepONetParametricOperatorLearningDBC(DeepONetParametricOpe
     def _ComputeThermoMechanicalLoss(self, control_output, nn_output):
         num_nodes = self.loss_function.fe_mesh.GetNumberOfNodes()
         num_dofs = self.loss_function.number_dofs_per_node
-        predicted_fields = nn_output.reshape(num_nodes, num_dofs)
-
-        boundary_mask = jnp.zeros(num_nodes * num_dofs)
-        boundary_values = jnp.zeros(num_nodes * num_dofs)
-        boundary_mask = boundary_mask.at[self.loss_function.dirichlet_indices].set(1.0)
-        boundary_values = boundary_values.at[self.loss_function.dirichlet_indices].set(control_output)
-        boundary_mask = boundary_mask.reshape(num_nodes, num_dofs)
-        boundary_values = boundary_values.reshape(num_nodes, num_dofs)
+        full_dofs = nn_output.at[self.loss_function.dirichlet_indices].set(control_output)
+        nodal_dofs = full_dofs.reshape(num_nodes, num_dofs)
 
         element_nodes = self.loss_function.fe_mesh.GetElementsNodes(
             self.loss_function.element_type
         )
-        element_vars = {
-            "XYZ": self.loss_function.fe_mesh.GetNodesCoordinates()[element_nodes, :],
-            "K": jnp.ones((num_nodes,))[element_nodes],
-            "T0": self.loss_function.thermal_loss_settings["T0"][element_nodes],
-        }
-        for dof_index, dof_name in enumerate(self.loss_function.GetDOFs()):
-            element_vars[dof_name] = predicted_fields[:, dof_index][element_nodes]
-            element_vars[dof_name + "_mask"] = boundary_mask[:, dof_index][element_nodes]
-            element_vars[dof_name + "_mask_value"] = boundary_values[:, dof_index][element_nodes]
+        element_xyz = self.loss_function.fe_mesh.GetNodesCoordinates()[element_nodes, :]
+        element_controls = jnp.ones(num_nodes)[element_nodes]
+        element_dofs = nodal_dofs[element_nodes].reshape(element_nodes.shape[0], -1, 1)
+        element_t0 = self.loss_function.thermal_loss_settings["T0"][element_nodes]
 
         element_thermal_losses, element_mechanical_losses = jax.vmap(
-            lambda variables: (
-                self.loss_function.ComputeElementThermal(variables)[0],
-                self.loss_function.ComputeElementMechanical(variables)[0],
+            lambda xyze, de, tuvwe, t0e: (
+                self.loss_function.ComputeElementThermal(
+                    xyze, de, tuvwe[self.loss_function.elem_t_local_ids]
+                )[0],
+                self.loss_function.ComputeElementMechanical(
+                    xyze,
+                    de,
+                    tuvwe[self.loss_function.elem_t_local_ids],
+                    tuvwe[self.loss_function.elem_uvw_local_ids],
+                    t0e,
+                )[0],
             )
-        )(element_vars)
+        )(element_xyz, element_controls, element_dofs, element_t0)
         thermal_loss = jnp.sum(element_thermal_losses)
         mechanical_loss = jnp.sum(element_mechanical_losses)
         total_loss = (thermal_loss + mechanical_loss) \

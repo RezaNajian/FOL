@@ -93,6 +93,12 @@ class ChemoMechanicsLoss(FiniteElementLoss):
         if "gamma" in self.loss_settings["material_dict"]:
             self.mechanical_loss_settings["gamma"] = self.loss_settings["material_dict"]["gamma"]
 
+        if self.num_gp < 2 and self.chemical_loss_settings["beta"] != 0:
+            fol_warning(
+                "Stress-driven diffusion with num_gp=1 produces a rank-deficient "
+                "element stress projection; use num_gp>=2 to retain the coupling."
+            )
+
         # Backward-compatible aliases for older callers and helper methods.
         self.thermal_loss_settings = self.chemical_loss_settings
             
@@ -170,10 +176,11 @@ class ChemoMechanicsLoss(FiniteElementLoss):
 
         Returns:
             tuple:
-                A 3-tuple ``(loss, residual, tangent)`` where
+                A 4-tuple ``(loss, residual, dres_dc, dres_du)`` where
                 ``loss`` is the scalar chemical loss contribution for the element,
                 ``residual`` is the element chemical residual vector (shape ``(nnode, 1)``),
-                and ``tangent`` is the chemical tangent matrix (shape ``(nnode, nnode)``).
+                ``dres_dc`` is the chemical tangent matrix (shape ``(nnode, nnode)``),
+                and ``dres_du`` is the coupling tangent with respect to displacement.
         """
         de = jax.lax.stop_gradient(de.reshape(-1, 1))
         ce = ce.reshape(-1, 1)
@@ -189,6 +196,7 @@ class ChemoMechanicsLoss(FiniteElementLoss):
 
                 J = self.fe_element.Jacobian(xyze, gp_point)
                 detJ = jnp.linalg.det(J)
+                Jw = jnp.abs(detJ) * gp_weight
 
                 c_gp = jnp.dot(N_vec, current_ce.squeeze())
                 D_gp = jnp.dot(N_vec.reshape(1, -1), de)
@@ -201,8 +209,8 @@ class ChemoMechanicsLoss(FiniteElementLoss):
                     + self.chemical_loss_settings["beta"] * c_gp * grad_p
                 )
 
-                gp_residual = DN_DX @ flux * detJ * gp_weight
-                gp_f = body_force * N_vec.reshape(-1, 1) * detJ * gp_weight
+                gp_residual = DN_DX @ flux * Jw
+                gp_f = body_force * N_vec.reshape(-1, 1) * Jw
                 return gp_residual - gp_f
 
             gp_points, gp_weights = self.fe_element.GetIntegrationData()
@@ -220,7 +228,7 @@ class ChemoMechanicsLoss(FiniteElementLoss):
             d_r_c_d_uvw.reshape(ce.shape[0], se.shape[0]),
         )
     
-    def ComputeElementMechanical(self,xyze,de,ce,se,ce_init,body_force=0):
+    def ComputeElementMechanical(self,xyze,de,ce,se,ce_init,body_force=None):
         # # @Yusuke: Please clean the function from commented lines and hard coded stuff
         """
         Compute mechanical contribution to element loss, residual, and tangents.
@@ -240,8 +248,8 @@ class ChemoMechanicsLoss(FiniteElementLoss):
                 ``(nnode * ndof_u, 1)``.
             ce_init: Element nodal initial chemical concentrations used as the reference state,
                 shaped like ``(nnode,)`` or ``(nnode, 1)``.
-            body_force: Optional body force vector applied in the mechanical equilibrium
-                equation. Defaults to 0.
+            body_force: Optional body force vector overriding ``self.body_force`` in the
+                mechanical equilibrium equation. Defaults to ``None``.
 
         Returns:
             tuple:
@@ -258,6 +266,7 @@ class ChemoMechanicsLoss(FiniteElementLoss):
         se = se.reshape(-1,1)
         ce = jax.lax.stop_gradient(ce.reshape(-1,1))
         ce_init = jax.lax.stop_gradient(ce_init.reshape(-1,1))
+        applied_body_force = self.body_force if body_force is None else jnp.asarray(body_force)
         def compute_at_gauss_point(gp_point,gp_weight):
             # Mechanical part
             N_vec = self.fe_element.ShapeFunctionsValues(gp_point)
@@ -266,6 +275,7 @@ class ChemoMechanicsLoss(FiniteElementLoss):
             B_mat = self.CalculateBMatrix(DN_DX)
             J = self.fe_element.Jacobian(xyze,gp_point)
             detJ = jnp.linalg.det(J)
+            Jw = jnp.abs(detJ) * gp_weight
             c_at_gauss = jnp.dot(N_vec,ce.squeeze())
             total_strain_at_gauss = B_mat@se
             ce_init_at_gauss = jnp.dot(N_vec, ce_init.squeeze())
@@ -275,11 +285,11 @@ class ChemoMechanicsLoss(FiniteElementLoss):
             elastic_strain = total_strain_at_gauss - chemical_strain_vec
             e_at_gauss = jnp.dot(N_vec, ke.squeeze())
             
-            gp_loss_m = 0.5 * elastic_strain.T @ self.D @ elastic_strain *e_at_gauss * detJ * gp_weight
-            gp_stiffness = gp_weight * detJ * e_at_gauss * (B_mat.T @ (self.D @ B_mat))
-            gp_lhs = gp_weight * detJ * e_at_gauss * B_mat.T @ self.D @ elastic_strain
-            gp_f = gp_weight * detJ * (N_mat.T @ self.body_force)
-            gp_stiffness_chemical = gp_weight * detJ * B_mat.T @ self.D @\
+            gp_loss_m = 0.5 * elastic_strain.T @ self.D @ elastic_strain * e_at_gauss * Jw
+            gp_stiffness = Jw * e_at_gauss * (B_mat.T @ (self.D @ B_mat))
+            gp_lhs = Jw * e_at_gauss * B_mat.T @ self.D @ elastic_strain
+            gp_f = Jw * (N_mat.T @ applied_body_force.reshape(-1,1))
+            gp_stiffness_chemical = Jw * B_mat.T @ self.D @\
             (- e_at_gauss*self.mechanical_loss_settings["gamma"] *self.chemical_st_vec).reshape(-1,1) @ N_vec.reshape(1,-1)
             
             return gp_loss_m, gp_stiffness, gp_f, gp_stiffness_chemical, gp_lhs
@@ -970,7 +980,8 @@ class ChemoMechanicsLoss3DTetra(ChemoMechanicsLoss):
 
     This class specializes :class:`ChemoMechanicsLoss` for three-dimensional
     problems with tetrahedral elements and ordered degrees of freedom
-    ``["C", "Ux", "Uy", "Uz"]``.
+    ``["C", "Ux", "Uy", "Uz"]``. If the integration order is not specified,
+    it defaults to 2 so that the hydrostatic-stress projection retains its gradient.
 
     Args:
         name (str): Identifier for the loss instance used for logging,
@@ -987,6 +998,8 @@ class ChemoMechanicsLoss3DTetra(ChemoMechanicsLoss):
     """
     @print_with_timestamp_and_execution_time
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
+        if not "num_gp" in loss_settings.keys():
+            loss_settings["num_gp"] = 2
         super().__init__(name,{**loss_settings,"compute_dims":3,
                                "ordered_dofs": ["C", "Ux","Uy","Uz"],                                           
                                "element_type":"tetra"},fe_mesh)
@@ -1056,7 +1069,8 @@ class ChemoMechanicsLoss2DTri(ChemoMechanicsLoss):
 
     This class specializes :class:`ChemoMechanicsLoss` for two-dimensional
     problems with triangular elements and ordered degrees of freedom
-    ``["C", "Ux", "Uy"]``.
+    ``["C", "Ux", "Uy"]``. If the integration order is not specified, it
+    defaults to 2 so that the hydrostatic-stress projection retains its gradient.
 
     Args:
         name (str): Identifier for the loss instance used for logging,
@@ -1072,6 +1086,8 @@ class ChemoMechanicsLoss2DTri(ChemoMechanicsLoss):
         None
     """
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
+        if not "num_gp" in loss_settings.keys():
+            loss_settings["num_gp"] = 2
         super().__init__(name,{**loss_settings,"compute_dims":2,
                                "ordered_dofs": ["C", "Ux","Uy"],  
                                "element_type":"triangle"},fe_mesh)

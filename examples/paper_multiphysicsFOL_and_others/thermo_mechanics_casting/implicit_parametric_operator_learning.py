@@ -161,7 +161,6 @@ class ImplicitParametricOperatorLearning(DeepNetwork):
         return self.loss_function.ComputeSingleLoss(control_output,nn_output)
 
     @print_with_timestamp_and_execution_time
-    @partial(jit, static_argnums=(0,))
     def Predict(self,batch_X):
         """
         Generate predictions for a batch of input data.

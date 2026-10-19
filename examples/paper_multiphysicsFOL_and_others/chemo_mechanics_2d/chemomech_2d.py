@@ -14,7 +14,6 @@ from fol.deep_neural_networks.ported_fourier_neural_operator_networks.fno import
 from fol.deep_neural_networks.fourier_parametric_operator_learning import PhysicsInformedFourierParametricOperatorLearning
 
 from fol.tools.decoration_functions import *
-import pickle
 from flax import nnx
 import jax
 import pyvista as pv
@@ -74,7 +73,6 @@ if create_random_coefficients:
     K_matrix = np.vstack(all_K_list)
     np.random.seed(42)  # For reproducibility
     np.random.shuffle(K_matrix)
-    E_matrix = K_matrix
 
 else:
     for idx, (x_freqs, y_freqs) in enumerate(freq_sets):
@@ -94,7 +92,6 @@ else:
     K_matrix = np.vstack(all_K_list)
     np.random.seed(42)  # For reproducibility
     np.random.shuffle(K_matrix)
-    E_matrix = K_matrix
 
 # Initial temperature field (stored per node)
 initial_temp = jnp.full((1, fe_mesh.GetNumberOfNodes()), 0.1)
@@ -233,7 +230,7 @@ params = nnx.state(fno_model, nnx.Param)
 total_params  = sum(np.prod(x.shape) for x in jax.tree_util.tree_leaves(params))
 print(f"total number of fno network param:{total_params}")
 
-num_epochs = 100
+num_epochs = 200
 learning_rate_scheduler = optax.linear_schedule(init_value=1e-2, end_value=1e-3, transition_steps=num_epochs)
 optimizer = optax.chain(optax.adam(learning_rate_scheduler))
 
@@ -259,13 +256,8 @@ pi_fno_pr_learning.Train(train_set=({"K":K_matrix[train_start_id:train_end_id,:]
           convergence_settings={"num_epochs":num_epochs,
                                 "relative_error":1e-8,
                                 "absolute_error":1e-8,
-                                "staggered":True,
-                                "staggered_mode":"fixed_epochs",
-                                "staggered_cycles":1,
-                                "staggered_min_epochs":1,
-                                "staggered_epochs":1,
-                                "staggered_max_epochs_per_physics":5},
-          train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":100},
+                                "staggered":False},
+          train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10},
           working_directory=case_dir,
           plot_settings={"plot_list":["total_loss"],
                          "plot_frequency":1,"save_frequency":100,
@@ -275,7 +267,7 @@ pi_fno_pr_learning.Train(train_set=({"K":K_matrix[train_start_id:train_end_id,:]
 
 # ---- config ----
 start_id = 5000
-num_samples = 5
+num_samples = 1
 sample_ids = range(start_id, start_id + num_samples)
 
 n_nodes = fe_mesh.GetNumberOfNodes()
@@ -301,23 +293,8 @@ nonlinear_fe_solver.Initialize()
 # base directory to hold all samples (e.g., ".../case_batch")
 batch_dir = os.path.join(case_dir, f"batch_{start_id}_{num_samples}")
 os.makedirs(batch_dir, exist_ok=True)
-import os, gc, time, json
-import numpy as np
-
-# -------- helpers for error metrics --------
-def _l2(x):        return float(np.sqrt(np.sum(x**2)))
-def _linf(x):      return float(np.max(np.abs(x)))
-def _rel_l2(err, ref, eps=1e-12):  # ||e||2 / (||ref||2 + eps)
-    return _l2(err) / max(_l2(ref), eps)
-def _von_mises_2d(stress):
-    sxx, syy, sxy = stress[:, 0], stress[:, 1], stress[:, 2]
-    return np.sqrt(sxx**2 - sxx * syy + syy**2 + 3.0 * sxy**2)
-def _mse(x):     return float(np.mean(x**2))
-
-rows = []  # will collect per-sample metrics rows
 
 for sid in sample_ids:
-    t0 = time.time()
     print(f"Processing sample {sid}...")
     sample_dir = os.path.join(batch_dir, f"sample_{sid:05d}")
     os.makedirs(sample_dir, exist_ok=True)
@@ -340,170 +317,27 @@ for sid in sample_ids:
     )
     FE_CUV = np.reshape(FE_CUV_flat, (n_nodes, output_size))
 
-    FOL_stress = np.array(chemomech_loss_2d.ComputeStress(K_vec.flatten(), FOL_CUV.reshape(-1)))
-    FE_stress = np.array(chemomech_loss_2d.ComputeStress(K_vec.flatten(), FE_CUV.reshape(-1)))
-    FOL_flux = np.array(chemomech_loss_2d.ComputeDiffusionFlux(
-        K_vec.flatten(), FOL_CUV[:, 0].flatten(), FOL_CUV.reshape(-1)))
-    FE_flux = np.array(chemomech_loss_2d.ComputeDiffusionFlux(
-        K_vec.flatten(), FE_CUV[:, 0].flatten(), FE_CUV.reshape(-1)))
-
-    abs_err_state = np.abs(FOL_CUV - FE_CUV)
-    abs_err_stress = np.abs(FOL_stress - FE_stress)
-    abs_err_flux = np.abs(FOL_flux - FE_flux)
-
-    fe_mesh['sol_FOL'] = FOL_CUV
-    fe_mesh['sol_FE'] = FE_CUV
-    fe_mesh['abs_error'] = abs_err_state
-    fe_mesh['FOL_stress'] = FOL_stress
-    fe_mesh['FE_stress'] = FE_stress
-    fe_mesh['abs_error_stress'] = abs_err_stress
-    fe_mesh['FOL_diffusion_flux'] = FOL_flux
-    fe_mesh['FE_diffusion_flux'] = FE_flux
-    fe_mesh['abs_error_diffusion_flux'] = abs_err_flux
-
     pv_mesh = pv.wrap(fe_mesh.mesh_io).copy(deep=True)
-    pv_mesh.point_data['conductivity_K'] = K_vec.reshape(-1, 1)
     pv_mesh.point_data['FOL_C'] = FOL_CUV[:, 0]
-    pv_mesh.point_data['FOL_U'] = FOL_CUV[:, 1]
-    pv_mesh.point_data['FOL_V'] = FOL_CUV[:, 2]
+    pv_mesh.point_data['FOL_Ux'] = FOL_CUV[:, 1]
+    pv_mesh.point_data['FOL_Uy'] = FOL_CUV[:, 2]
     pv_mesh.point_data['FE_C'] = FE_CUV[:, 0]
-    pv_mesh.point_data['FE_U'] = FE_CUV[:, 1]
-    pv_mesh.point_data['FE_V'] = FE_CUV[:, 2]
-    pv_mesh.point_data['Diff_C'] = abs_err_state[:, 0]
-    pv_mesh.point_data['Diff_U'] = abs_err_state[:, 1]
-    pv_mesh.point_data['Diff_V'] = abs_err_state[:, 2]
-    pv_mesh.point_data['FOL_Stress_XX'] = FOL_stress[:, 0]
-    pv_mesh.point_data['FOL_Stress_YY'] = FOL_stress[:, 1]
-    pv_mesh.point_data['FOL_Stress_XY'] = FOL_stress[:, 2]
-    pv_mesh.point_data['FE_Stress_XX'] = FE_stress[:, 0]
-    pv_mesh.point_data['FE_Stress_YY'] = FE_stress[:, 1]
-    pv_mesh.point_data['FE_Stress_XY'] = FE_stress[:, 2]
-    pv_mesh.point_data['Stress_XX_diff'] = abs_err_stress[:, 0]
-    pv_mesh.point_data['Stress_YY_diff'] = abs_err_stress[:, 1]
-    pv_mesh.point_data['Stress_XY_diff'] = abs_err_stress[:, 2]
-    pv_mesh.point_data['FOL_Diffusion_Flux_X'] = FOL_flux[:, 0]
-    pv_mesh.point_data['FOL_Diffusion_Flux_Y'] = FOL_flux[:, 1]
-    pv_mesh.point_data['FE_Diffusion_Flux_X'] = FE_flux[:, 0]
-    pv_mesh.point_data['FE_Diffusion_Flux_Y'] = FE_flux[:, 1]
-    pv_mesh.point_data['Diffusion_Flux_X_diff'] = abs_err_flux[:, 0]
-    pv_mesh.point_data['Diffusion_Flux_Y_diff'] = abs_err_flux[:, 1]
+    pv_mesh.point_data['FE_Ux'] = FE_CUV[:, 1]
+    pv_mesh.point_data['FE_Uy'] = FE_CUV[:, 2]
 
     plot_fields_matplotlib(
         pv_mesh,
         [
-            'conductivity_K', 'FOL_C', 'FOL_U', 'FOL_V',
-            'conductivity_K', 'FE_C', 'FE_U', 'FE_V',
-            'conductivity_K', 'Diff_C', 'Diff_U', 'Diff_V',
+            'FOL_C', 'FOL_Ux', 'FOL_Uy',
+            'FE_C', 'FE_Ux', 'FE_Uy',
         ],
-        nrows=3,
-        ncols=4,
+        nrows=2,
+        ncols=3,
         save_path=os.path.join(sample_dir, f"primary_fields_{sid}.png"),
-        figsize=(18, 9),
-        shading="gouraud",
-    )
-    plot_fields_matplotlib(
-        pv_mesh,
-        [
-            'conductivity_K', 'FOL_Stress_XX', 'FOL_Stress_YY', 'FOL_Stress_XY',
-            'FOL_Diffusion_Flux_X', 'FOL_Diffusion_Flux_Y',
-            'conductivity_K', 'FE_Stress_XX', 'FE_Stress_YY', 'FE_Stress_XY',
-            'FE_Diffusion_Flux_X', 'FE_Diffusion_Flux_Y',
-            'conductivity_K', 'Stress_XX_diff', 'Stress_YY_diff', 'Stress_XY_diff',
-            'Diffusion_Flux_X_diff', 'Diffusion_Flux_Y_diff',
-        ],
-        nrows=3,
-        ncols=6,
-        save_path=os.path.join(sample_dir, f"secondary_fields_{sid}.png"),
-        figsize=(22, 8),
+        figsize=(14, 8),
         shading="gouraud",
     )
 
-    C_err = FOL_CUV[:, 0] - FE_CUV[:, 0]
-    U_err = FOL_CUV[:, 1:] - FE_CUV[:, 1:]
-    FOL_von_mises = _von_mises_2d(FOL_stress)
+    print(f"Saved primary-field contours to: {sample_dir}")
 
-    FE_von_mises = _von_mises_2d(FE_stress)
-
-    S_err = FOL_stress - FE_stress
-
-    VonMises_err = FOL_von_mises - FE_von_mises
-
-    J_err = FOL_flux - FE_flux
-
-    rows.append({
-        "sid": int(sid),
-        "C_relL2": _rel_l2(C_err, FE_CUV[:, 0]),
-        "Ux_relL2": _rel_l2(U_err[:, 0], FE_CUV[:, 1]),
-        "Uy_relL2": _rel_l2(U_err[:, 1], FE_CUV[:, 2]),
-        "Uvec_relL2": _rel_l2(U_err, FE_CUV[:, 1:]),
-        "Sxx_relL2": _rel_l2(S_err[:, 0], FE_stress[:, 0]),
-        "Syy_relL2": _rel_l2(S_err[:, 1], FE_stress[:, 1]),
-        "Sxy_relL2": _rel_l2(S_err[:, 2], FE_stress[:, 2]),
-        "Svec_relL2": _rel_l2(S_err, FE_stress),
-                "VonMises_relL2": _rel_l2(VonMises_err, FE_von_mises),
-        "FluxX_relL2": _rel_l2(J_err[:, 0], FE_flux[:, 0]),
-        "FluxY_relL2": _rel_l2(J_err[:, 1], FE_flux[:, 1]),
-        "FluxVec_relL2": _rel_l2(J_err, FE_flux),
-        "C_Linf": _linf(C_err),
-        "Uvec_Linf": _linf(U_err),
-        "Svec_Linf": _linf(S_err),
-        "FluxVec_Linf": _linf(J_err),
-        "C_MSE": _mse(C_err),
-        "Ux_MSE": _mse(U_err[:, 0]),
-        "Uy_MSE": _mse(U_err[:, 1]),
-        "Uvec_MSE": _mse(U_err),
-        "Sxx_MSE": _mse(S_err[:, 0]),
-        "Syy_MSE": _mse(S_err[:, 1]),
-        "Sxy_MSE": _mse(S_err[:, 2]),
-        "Svec_MSE": _mse(S_err),
-                "VonMises_MSE": _mse(VonMises_err),
-        "FluxX_MSE": _mse(J_err[:, 0]),
-        "FluxY_MSE": _mse(J_err[:, 1]),
-        "FluxVec_MSE": _mse(J_err),
-        "seconds": float(time.time() - t0),
-    })
-
-    fe_mesh.Finalize(export_dir=sample_dir)
-
-    del pv_mesh, FOL_CUV, FE_CUV, FE_CUV_flat, FOL_stress, FE_stress, FOL_flux, FE_flux
-    del abs_err_state, abs_err_stress, abs_err_flux, C_err, U_err, S_err, VonMises_err, FOL_von_mises, FE_von_mises, J_err
-    gc.collect()
-
-per_sample_csv = os.path.join(batch_dir, "error_stats_per_sample.csv")
-summary_json = os.path.join(batch_dir, "error_stats_summary.json")
-
-try:
-    import pandas as pd
-    pd.DataFrame(rows).to_csv(per_sample_csv, index=False)
-except Exception:
-    import csv
-    keys = sorted({k for row in rows for k in row.keys()})
-    with open(per_sample_csv, "w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=keys)
-        writer.writeheader()
-        writer.writerows(rows)
-
-def _summarize(vals):
-    arr = np.asarray(vals, dtype=float)
-    return {
-        "count": int(arr.size),
-        "mean": float(arr.mean()),
-        "std": float(arr.std(ddof=1)) if arr.size > 1 else 0.0,
-        "min": float(arr.min()),
-        "p50": float(np.quantile(arr, 0.50)),
-        "p90": float(np.quantile(arr, 0.90)),
-        "p95": float(np.quantile(arr, 0.95)),
-        "max": float(arr.max()),
-    }
-
-numeric_keys = [k for k in rows[0].keys() if k != "sid"]
-summary = {k: _summarize([row[k] for row in rows if isinstance(row.get(k), (int, float))]) for k in numeric_keys}
-summary["success_count"] = int(len(rows))
-summary["seconds_total"] = float(sum(row.get("seconds", 0.0) for row in rows))
-
-with open(summary_json, "w", encoding="utf-8") as file:
-    json.dump(summary, file, indent=2)
-
-print(f"[stats] Wrote per-sample metrics to: {per_sample_csv}")
-print(f"[stats] Wrote summary stats to:      {summary_json}")
 print("Done.")
