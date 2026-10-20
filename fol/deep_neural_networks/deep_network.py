@@ -171,11 +171,7 @@ class DeepNetwork(ABC):
         pass
 
     @partial(nnx.jit, static_argnums=(0,))
-    def TrainStep(
-        self,
-        state: tuple[nnx.Module, nnx.Optimizer],
-        data: tuple[dict[str, jnp.ndarray], dict[str, jnp.ndarray]],
-    ) -> jnp.ndarray:
+    def TrainStep(self, state, data):
         """
         Execute one JIT-compiled training step.
 
@@ -240,16 +236,14 @@ class DeepNetwork(ABC):
         """
         return (self.flax_neural_network, self.nnx_optimizer)
     
-    def _validate_and_get_n_samples(self,
-        set_tuple: tuple[dict[str, jnp.ndarray], dict[str, jnp.ndarray]],
-        set_name: str
-    ):
+    def _validate_and_get_n_samples(self, set_tuple: tuple, set_name: str):
         """
-        Validate that all arrays in the input dict (and optionally output dict)
-        have the same number of samples along axis 0, and return that sample count.
+        Validate array- or dictionary-based dataset components and return the
+        common sample count along axis 0.
 
         Args:
-            set_tuple: Either (input_dict,) or (input_dict, output_dict).
+            set_tuple: Either ``(inputs,)`` or ``(inputs, outputs)``. Each
+                component may be an array or a dictionary of named arrays.
             set_name: A label used in error messages (e.g., "train", "val", "test").
 
         Returns:
@@ -261,59 +255,51 @@ class DeepNetwork(ABC):
         if not set_tuple:
             fol_error(
                 f"Invalid '{set_name}' set: received an empty tuple. "
-                "Expected at least one component (input dictionary)."
+                "Expected at least one input component."
             )
 
         if len(set_tuple) not in (1, 2):
             fol_error(
                 f"Invalid '{set_name}' set: expected a tuple of length 1 or 2 "
-                f"((input_dict,) or (input_dict, output_dict)), but got length {len(set_tuple)}."
+                f"((inputs,) or (inputs, outputs)), but got length {len(set_tuple)}."
             )
 
-        input_dict = set_tuple[0]
-        if not isinstance(input_dict, dict):
-            fol_error(
-                f"Invalid '{set_name}' set: first component must be a dict[str, jnp.ndarray], "
-                f"but got {type(input_dict).__name__}."
-            )
-        if not input_dict:
-            fol_error(
-                f"Invalid '{set_name}' set: input dictionary is empty. "
-                "Expected at least one input array."
-            )
+        def get_sample_counts(component, component_name):
+            if isinstance(component, dict):
+                if not component:
+                    fol_error(
+                        f"Invalid '{set_name}' set: {component_name} dictionary is empty."
+                    )
+                arrays = component.values()
+            else:
+                arrays = (component,)
 
-        # Validate input sample sizes
-        unique_input_sample_counts = {v.shape[0] for v in input_dict.values()}
-        if len(unique_input_sample_counts) != 1:
-            fol_error(
-                f"Inconsistent input sample sizes in '{set_name}' set. "
-                "All input arrays must have the same size along axis 0, "
-                f"but found sizes: {sorted(unique_input_sample_counts)}."
-            )
+            sample_counts = set()
+            for array in arrays:
+                shape = getattr(array, "shape", None)
+                if shape is None or len(shape) == 0:
+                    fol_error(
+                        f"Invalid '{set_name}' set: every {component_name} value "
+                        "must be an array with a sample axis."
+                    )
+                sample_counts.add(shape[0])
+
+            if len(sample_counts) != 1:
+                fol_error(
+                    f"Inconsistent {component_name} sample sizes in '{set_name}' "
+                    f"set: {sorted(sample_counts)}."
+                )
+            return sample_counts
+
+        unique_input_sample_counts = get_sample_counts(set_tuple[0], "input")
 
         n_samples = next(iter(unique_input_sample_counts))
+        if n_samples == 0:
+            fol_error(f"Invalid '{set_name}' set: the dataset contains no samples.")
 
         # If outputs exist, validate them too
         if len(set_tuple) == 2:
-            output_dict = set_tuple[1]
-            if not isinstance(output_dict, dict):
-                fol_error(
-                    f"Invalid '{set_name}' set: second component must be a dict[str, jnp.ndarray], "
-                    f"but got {type(output_dict).__name__}."
-                )
-            if not output_dict:
-                fol_error(
-                    f"Invalid '{set_name}' set: output dictionary is empty. "
-                    "Expected at least one output array."
-                )
-
-            unique_output_sample_counts = {v.shape[0] for v in output_dict.values()}
-            if len(unique_output_sample_counts) != 1:
-                fol_error(
-                    f"Inconsistent output sample sizes in '{set_name}' set. "
-                    "All output arrays must have the same size along axis 0, "
-                    f"but found sizes: {sorted(unique_output_sample_counts)}."
-                )
+            unique_output_sample_counts = get_sample_counts(set_tuple[1], "output")
 
             if unique_input_sample_counts != unique_output_sample_counts:
                 fol_error(
@@ -326,8 +312,8 @@ class DeepNetwork(ABC):
 
     @print_with_timestamp_and_execution_time
     def Train(self,
-              train_set:tuple[dict[str, jnp.ndarray], dict[str, jnp.ndarray]],
-              test_set:tuple[dict[str, jnp.ndarray], dict[str, jnp.ndarray]] | None = None,
+              train_set:tuple,
+              test_set:tuple | None = None,
               test_frequency:int=100,
               batch_size:int=100,
               convergence_settings:dict={},
@@ -479,10 +465,10 @@ class DeepNetwork(ABC):
             #         jax.debug.visualize_array_sharding(leaf)
             #         break  # remove this if you want all leaves
             fol_info("train set is sharded as ")
-            jax.debug.visualize_array_sharding(next(iter(train_set[0].values())))
+            jax.debug.visualize_array_sharding(tree_util.tree_leaves(train_set[0])[0])
             if test_set:
                 fol_info("test set is sharded as ")
-                jax.debug.visualize_array_sharding(next(iter(test_set[0].values())))
+                jax.debug.visualize_array_sharding(tree_util.tree_leaves(test_set[0])[0])
 
 
         def train_loop():

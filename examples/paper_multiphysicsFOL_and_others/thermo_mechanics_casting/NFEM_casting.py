@@ -6,8 +6,6 @@ import numpy as np
 from fol.loss_functions.thermo_mechanics import ThermoMechanicsLoss3DTetra
 # from fol.loss_functions.thermal import ThermalLoss3DTetra
 from fol.mesh_input_output.mesh import Mesh
-from fol.controls.identity_control import IdentityControl
-from fol.controls.fourier_control import FourierControl
 from fol.controls.dirichlet_control import DirichletControl
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
@@ -51,9 +49,8 @@ thermomech_loss_3d = ThermoMechanicsLoss3DTetra("thermomechanical_loss_3d",
         "mechanical_dict": mechanical_dict
     },
                                                                             fe_mesh=fe_mesh)
-no_control = IdentityControl("No_Control",fe_mesh,{})
+
 thermomech_loss_3d.Initialize()
-no_control.Initialize()
 displ_control_settings = {"learning_boundary": {"T":{"Inlet_top"}}}
 
 displ_control = DirichletControl("displ_control",displ_control_settings,fe_mesh,thermomech_loss_3d)
@@ -63,8 +60,8 @@ K_matrix = np.full((1,fe_mesh.GetNumberOfNodes()),1.0)
 test_E_coeff = K_matrix[0].reshape(1,-1)
 test_K_coeff = K_matrix[0].reshape(1,-1)
 initial_temp = np.full((1,fe_mesh.GetNumberOfNodes()),1e-4)
-E_matrix = test_E_coeff.flatten()#fourier_control.ComputeBatchControlledVariables(coeffs_matrix)
-K_matrix = test_K_coeff.flatten()#fourier_control.ComputeBatchControlledVariables(coeffs_matrix)
+# E_matrix = test_E_coeff.flatten()#fourier_control.ComputeBatchControlledVariables(coeffs_matrix)
+# K_matrix = test_K_coeff.flatten()#fourier_control.ComputeBatchControlledVariables(coeffs_matrix)
 
 wanted_bc = 0.5
 # solve FE here

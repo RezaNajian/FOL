@@ -5,8 +5,6 @@ import optax
 import numpy as np
 # from fol.loss_functions.thermal import ThermalLoss3DTetra
 from fol.mesh_input_output.mesh import Mesh
-from fol.controls.identity_control import IdentityControl
-from fol.controls.fourier_control import FourierControl
 from fol.controls.dirichlet_control import DirichletControl
 from deep_o_net_parametric_operator_learning import PhysicsInformedDeepONetParametricOperatorLearningDBC
 from deep_o_nets import DeepONet
@@ -56,21 +54,12 @@ thermomech_loss_3d = ThermoMechanicsLoss3DTetra("thermomechanical_loss_3d",loss_
                                                                             "thermal_dict":thermal_dict,
                                                                             "mechanical_dict":mechanical_dict},
                                                                             fe_mesh=fe_mesh)
-no_control = IdentityControl("No_Control",fe_mesh,{})
+
 thermomech_loss_3d.Initialize()
-no_control.Initialize()
 displ_control_settings = {"learning_boundary": {"T":{"Inlet_top"}}}
 
 displ_control = DirichletControl("displ_control",displ_control_settings,fe_mesh,thermomech_loss_3d)
 displ_control.Initialize()
-x_freqs = np.array([1,2,3])
-y_freqs = np.array([1,2,3])
-z_freqs = np.array([1,2,3])
-fourier_control_settings = {"x_freqs":x_freqs,"y_freqs":y_freqs,"z_freqs":z_freqs,"beta":5,"min":1e-1,"max":1}
-fourier_control = FourierControl("K",fourier_control_settings,fe_mesh)
-
-fourier_control.Initialize()
-
 
 create_random_coefficients = False
 if create_random_coefficients:
