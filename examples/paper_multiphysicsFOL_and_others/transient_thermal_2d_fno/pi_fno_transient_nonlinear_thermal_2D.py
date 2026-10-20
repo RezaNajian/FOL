@@ -10,10 +10,11 @@ from fol.controls.multi_control import MultiControl
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.loss_functions.transient_thermal import TransientThermalLoss2DQuad
 from thermal_usefull_functions import *
-from fol.deep_neural_networks.ported_fourier_neural_operator_networks.fno import FNO
+from fourier_neural_operator_networks import FourierNeuralOperator2D
 from fol.deep_neural_networks.fourier_parametric_operator_learning import PhysicsInformedFourierParametricOperatorLearning
 
 from flax import nnx
+from flax.nnx import bridge
 import jax
 jax.config.update("jax_default_matmul_precision", "highest")
 
@@ -24,7 +25,7 @@ create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # problem setup
-model_settings = {"L":1,"N":51,
+model_settings = {"L":1,"N":50,
                 "T_left":1.0,"T_right":0.0}
 
 # creation of the model
@@ -133,25 +134,30 @@ training_context = {
 
 # design synthesizer & modulator NN for hypernetwork
 
-class TransientThermalFNO(nnx.Module):
-    """Ported NNX FNO with named transient-temperature input and output."""
+class OriginalTransientThermalFNOAdapter(nnx.Module):
+    """Adapt the original Linen FNO to the trainer's named-field API."""
 
     def __init__(self, *, rngs: nnx.Rngs):
-        self.fno = FNO(
-            n_modes=(24, 24),
-            in_channels=1,
+        original_fno = FourierNeuralOperator2D(
+            modes1=24,
+            modes2=24,
+            width=10,
+            depth=3,
+            channels_last_proj=128,
             out_channels=1,
-            hidden_channels=10,
-            n_layers=3,
-            projection_channel_ratio=128 / 10,
-            rngs=rngs,
+            output_scale=1.0,
         )
+        example_input = jnp.zeros(
+            (1, model_settings["N"], model_settings["N"], 1),
+            dtype=jnp.float32,
+        )
+        self.fno = bridge.ToNNX(original_fno, rngs=rngs).lazy_init(example_input)
 
     def __call__(self, inputs):
         return {"T":self.fno(inputs["T_current"])}
 
 
-fno_model = TransientThermalFNO(rngs=nnx.Rngs(0))
+fno_model = OriginalTransientThermalFNOAdapter(rngs=nnx.Rngs(0))
 
 # get total number of fno params
 params = nnx.state(fno_model, nnx.Param)

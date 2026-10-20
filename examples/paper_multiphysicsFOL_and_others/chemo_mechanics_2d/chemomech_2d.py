@@ -10,11 +10,12 @@ from fol.controls.identity_control import IdentityControl
 from cm_useful_functions import *
 from fol.tools.logging_functions import Logger
 
-from fol.deep_neural_networks.ported_fourier_neural_operator_networks.fno import FNO
 from fol.deep_neural_networks.fourier_parametric_operator_learning import PhysicsInformedFourierParametricOperatorLearning
+from fourier_neural_operator_networks import FourierNeuralOperator2D
 
 from fol.tools.decoration_functions import *
 from flax import nnx
+from flax.nnx import bridge
 import jax
 import pyvista as pv
 
@@ -109,53 +110,31 @@ material_dict = {
 class OperatorCompatibleChemoMechanicsLoss2DQuad(ChemoMechanicsLoss2DQuad):
     """Support the named-field API used by the current PI-FNO trainer."""
 
-    def ComputeElement(self, *args):
-        if len(args) != 1 or not isinstance(args[0], dict):
-            return super().ComputeElement(*args)
-
-        element_variables = args[0]
-
-        def apply_boundary_conditions(field_name):
-            field = element_variables[field_name]
-            mask = element_variables[field_name + "_mask"]
-            mask_value = element_variables[field_name + "_mask_value"]
-            return (1.0 - mask) * field + mask * mask_value
-
-        element_dofs = jnp.stack(
-            (
-                apply_boundary_conditions("C"),
-                apply_boundary_conditions("Ux"),
-                apply_boundary_conditions("Uy"),
-            ),
-            axis=1,
-        ).reshape(-1, 1)
-        return super().ComputeElement(
-            element_variables["XYZ"],
-            element_variables["K"],
-            element_dofs,
-            element_variables["C0"],
-        )
-
     def ComputeBatchLoss(self, batch_variables):
-        batch_size = next(iter(batch_variables.values())).shape[0]
-        connectivity = self.fe_mesh.GetElementsNodes(self.element_type)
-        element_coordinates = self.fe_mesh.GetNodesCoordinates()[connectivity, :]
-        batch_element_variables = {
-            "XYZ": jnp.broadcast_to(
-                element_coordinates[None, ...],
-                (batch_size,) + element_coordinates.shape,
-            )
-        }
-        for name, values in batch_variables.items():
-            nodal_values = jnp.reshape(jnp.atleast_2d(values), (batch_size, -1))
-            batch_element_variables[name] = nodal_values[:, connectivity]
+        def compute_sample_loss(sample_variables):
+            def apply_boundary_conditions(field_name):
+                field = jnp.ravel(sample_variables[field_name])
+                mask = jnp.ravel(sample_variables[field_name + "_mask"])
+                mask_value = jnp.ravel(
+                    sample_variables[field_name + "_mask_value"]
+                )
+                return (1.0 - mask) * field + mask * mask_value
 
-        element_losses = jax.vmap(
-            jax.vmap(lambda variables: self.ComputeElement(variables)[0], in_axes=0),
-            in_axes=0,
-        )(batch_element_variables)
-        sample_losses = jnp.sum(element_losses.reshape(batch_size, -1), axis=1)
-        sample_losses = sample_losses**self.loss_function_exponent
+            full_dof_vector = jnp.stack(
+                (
+                    apply_boundary_conditions("C"),
+                    apply_boundary_conditions("Ux"),
+                    apply_boundary_conditions("Uy"),
+                ),
+                axis=1,
+            ).reshape(-1, 1)
+            control_vector = jnp.ravel(sample_variables["K"]).reshape(-1, 1)
+            element_losses = self.ComputeElementsEnergies(
+                control_vector, full_dof_vector
+            )
+            return jnp.sum(element_losses) ** self.loss_function_exponent
+
+        sample_losses = jax.vmap(compute_sample_loss)(batch_variables)
         return jnp.mean(sample_losses), (
             jnp.min(sample_losses),
             jnp.max(sample_losses),
@@ -186,29 +165,30 @@ for dof_name in chemomech_loss_2d.GetDOFs():
     boundary_batch[dof_name + "_mask_value"] = jnp.broadcast_to(
         mask_value, (number_of_samples, mask_value.size)
     )
-boundary_batch["C0"] = jnp.broadcast_to(
-    initial_temp.reshape(-1),
-    (number_of_samples, fe_mesh.GetNumberOfNodes()),
-)
 
-class ScaledFNO(nnx.Module):
-    """Ported NNX FNO with the output scaling used by the original case."""
+
+class OriginalFNOAdapter(nnx.Module):
+    """Adapt the original Linen FNO to the named-field API used by the trainer."""
 
     def __init__(self, *, rngs: nnx.Rngs):
-        self.fno = FNO(
-            n_modes=(12, 12),
-            in_channels=1,
+        original_fno = FourierNeuralOperator2D(
+            modes1=12,
+            modes2=12,
+            width=34,
+            depth=4,
+            channels_last_proj=128,
             out_channels=3,
-            hidden_channels=34,
-            n_layers=4,
-            projection_channel_ratio=128 / 34,
-            domain_padding=4 / model_settings["N"],
-            rngs=rngs,
+            padding=4,
+            output_scale=0.001,
         )
-        self.output_scale = 0.001
+        example_input = jnp.zeros(
+            (1, model_settings["N"], model_settings["N"], 1),
+            dtype=jnp.float32,
+        )
+        self.fno = bridge.ToNNX(original_fno, rngs=rngs).lazy_init(example_input)
 
     def __call__(self, inputs):
-        fields = self.output_scale * self.fno(inputs["K"])
+        fields = self.fno(inputs["K"])
         return {
             "C": fields[..., 0:1],
             "Ux": fields[..., 1:2],
@@ -216,7 +196,7 @@ class ScaledFNO(nnx.Module):
         }
 
 
-fno_model = ScaledFNO(rngs=nnx.Rngs(0))
+fno_model = OriginalFNOAdapter(rngs=nnx.Rngs(0))
 
 warmup_inputs = {
     "K": jnp.asarray(K_matrix[0:1]).reshape(
@@ -226,11 +206,11 @@ warmup_inputs = {
 _ = fno_model(warmup_inputs)
 
 # get total number of fno params
-params = nnx.state(fno_model, nnx.Param)
-total_params  = sum(np.prod(x.shape) for x in jax.tree_util.tree_leaves(params))
-print(f"total number of fno network param:{total_params}")
+# params = nnx.state(fno_model, nnx.Param)
+# total_params  = sum(np.prod(x.shape) for x in jax.tree_util.tree_leaves(params))
+# print(f"total number of fno network param:{total_params}")
 
-num_epochs = 200
+num_epochs = 1000
 learning_rate_scheduler = optax.linear_schedule(init_value=1e-2, end_value=1e-3, transition_steps=num_epochs)
 optimizer = optax.chain(optax.adam(learning_rate_scheduler))
 
@@ -263,6 +243,7 @@ pi_fno_pr_learning.Train(train_set=({"K":K_matrix[train_start_id:train_end_id,:]
                          "plot_frequency":1,"save_frequency":100,
                          "save_directory":case_dir})
 
+pi_fno_pr_learning.RestoreState("chemomech_2D/flax_final_state")
 
 
 # ---- config ----
@@ -324,17 +305,21 @@ for sid in sample_ids:
     pv_mesh.point_data['FE_C'] = FE_CUV[:, 0]
     pv_mesh.point_data['FE_Ux'] = FE_CUV[:, 1]
     pv_mesh.point_data['FE_Uy'] = FE_CUV[:, 2]
+    pv_mesh.point_data['ABS_ERROR_C'] = np.abs(FOL_CUV[:, 0] - FE_CUV[:, 0])
+    pv_mesh.point_data['ABS_ERROR_Ux'] = np.abs(FOL_CUV[:, 1] - FE_CUV[:, 1])
+    pv_mesh.point_data['ABS_ERROR_Uy'] = np.abs(FOL_CUV[:, 2] - FE_CUV[:, 2])
 
     plot_fields_matplotlib(
         pv_mesh,
         [
             'FOL_C', 'FOL_Ux', 'FOL_Uy',
             'FE_C', 'FE_Ux', 'FE_Uy',
+            'ABS_ERROR_C', 'ABS_ERROR_Ux', 'ABS_ERROR_Uy',
         ],
-        nrows=2,
+        nrows=3,
         ncols=3,
         save_path=os.path.join(sample_dir, f"primary_fields_{sid}.png"),
-        figsize=(14, 8),
+        figsize=(14, 12),
         shading="gouraud",
     )
 
