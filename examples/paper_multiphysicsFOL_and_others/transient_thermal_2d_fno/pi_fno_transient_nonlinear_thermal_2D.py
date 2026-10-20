@@ -6,7 +6,6 @@ from fol.tools.usefull_functions import *
 from fol.tools.decoration_functions import *
 from fol.tools.logging_functions import Logger
 from fol.controls.identity_control import IdentityControl
-from fol.controls.multi_control import MultiControl
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.loss_functions.transient_thermal import TransientThermalLoss2DQuad
 from thermal_usefull_functions import *
@@ -54,110 +53,28 @@ bc_dict = {"T":{"left":model_settings["T_left"],"right":model_settings["T_right"
 material_dict = {"rho":1.0,"cp":1.0,"k0":train_heterogeneity_field.flatten(),"beta":1.5,"c":1.0}
 time_integration_dict = {"method":"implicit-euler","time_step":0.005}
 
-class OperatorCompatibleTransientThermalLoss2DQuad(TransientThermalLoss2DQuad):
-    """Support the named-field batch API used by the current PI-FNO trainer."""
-
-    def ComputeElement(self, *args):
-        if len(args) != 1 or not isinstance(args[0], dict):
-            return super().ComputeElement(*args)
-
-        element_variables = args[0]
-        next_temperature = (
-            (1.0 - element_variables["T_mask"]) * element_variables["T"]
-            + element_variables["T_mask"] * element_variables["T_mask_value"]
-        )
-        return super().ComputeElement(
-            element_variables["XYZ"],
-            element_variables["T_current"],
-            next_temperature,
-            element_variables["K0"],
-        )
-
-    def ComputeBatchLoss(self, batch_variables):
-        batch_size = next(iter(batch_variables.values())).shape[0]
-        connectivity = self.fe_mesh.GetElementsNodes(self.element_type)
-        element_coordinates = self.fe_mesh.GetNodesCoordinates()[connectivity, :]
-        batch_element_variables = {
-            "XYZ": jnp.broadcast_to(
-                element_coordinates[None, ...],
-                (batch_size,) + element_coordinates.shape,
-            )
-        }
-        for name, values in batch_variables.items():
-            nodal_values = jnp.reshape(jnp.atleast_2d(values), (batch_size, -1))
-            batch_element_variables[name] = nodal_values[:, connectivity]
-
-        element_losses = jax.vmap(
-            jax.vmap(lambda variables: self.ComputeElement(variables)[0], in_axes=0),
-            in_axes=0,
-        )(batch_element_variables)
-        sample_losses = jnp.sum(element_losses.reshape(batch_size, -1), axis=1)
-        sample_losses = sample_losses**self.loss_function_exponent
-        return jnp.mean(sample_losses), (
-            jnp.min(sample_losses),
-            jnp.max(sample_losses),
-            jnp.mean(sample_losses),
-        )
-
-
-transient_thermal_loss_2d = OperatorCompatibleTransientThermalLoss2DQuad("thermal_transient_loss_2d",loss_settings={"dirichlet_bc_dict":bc_dict,
+transient_thermal_loss_2d = TransientThermalLoss2DQuad("thermal_transient_loss_2d",loss_settings={"dirichlet_bc_dict":bc_dict,
                                                                             "num_gp":2,
                                                                             "material_dict":material_dict,
                                                                             "time_integration_dict":time_integration_dict},
                                                                             fe_mesh=fe_mesh)
 transient_thermal_loss_2d.Initialize()
 
-temperature_control = IdentityControl("T_current", {}, fe_mesh.GetNumberOfNodes())
-multi_control = MultiControl("transient_thermal_controls", [temperature_control])
-multi_control.Initialize()
+identity_control = IdentityControl("T_current", {}, fe_mesh.GetNumberOfNodes())
 
-number_of_samples = train_temperature_fields.shape[0]
-temperature_mask = jnp.zeros(fe_mesh.GetNumberOfNodes())
-temperature_mask_value = jnp.zeros(fe_mesh.GetNumberOfNodes())
-for boundary_name, boundary_value in bc_dict["T"].items():
-    boundary_node_ids = fe_mesh.GetNodeSet(boundary_name)
-    temperature_mask = temperature_mask.at[boundary_node_ids].set(1.0)
-    temperature_mask_value = temperature_mask_value.at[boundary_node_ids].set(boundary_value)
-
-training_context = {
-    "T_mask":jnp.broadcast_to(
-        temperature_mask, (number_of_samples, temperature_mask.size)
+# design the FNO (original Linen FNO bridged to NNX)
+fno_model = bridge.ToNNX(
+    FourierNeuralOperator2D(
+        modes1=24,
+        modes2=24,
+        width=10,
+        depth=3,
+        channels_last_proj=128,
+        out_channels=1,
+        output_scale=1.0,
     ),
-    "T_mask_value":jnp.broadcast_to(
-        temperature_mask_value, (number_of_samples, temperature_mask_value.size)
-    ),
-    "K0":jnp.broadcast_to(
-        jnp.asarray(train_heterogeneity_field).reshape(-1),
-        (number_of_samples, fe_mesh.GetNumberOfNodes()),
-    ),
-}
-
-# design synthesizer & modulator NN for hypernetwork
-
-class OriginalTransientThermalFNOAdapter(nnx.Module):
-    """Adapt the original Linen FNO to the trainer's named-field API."""
-
-    def __init__(self, *, rngs: nnx.Rngs):
-        original_fno = FourierNeuralOperator2D(
-            modes1=24,
-            modes2=24,
-            width=10,
-            depth=3,
-            channels_last_proj=128,
-            out_channels=1,
-            output_scale=1.0,
-        )
-        example_input = jnp.zeros(
-            (1, model_settings["N"], model_settings["N"], 1),
-            dtype=jnp.float32,
-        )
-        self.fno = bridge.ToNNX(original_fno, rngs=rngs).lazy_init(example_input)
-
-    def __call__(self, inputs):
-        return {"T":self.fno(inputs["T_current"])}
-
-
-fno_model = OriginalTransientThermalFNOAdapter(rngs=nnx.Rngs(0))
+    rngs=nnx.Rngs(0),
+).lazy_init(jnp.zeros((1, model_settings["N"], model_settings["N"], 1), dtype=jnp.float32))
 
 # get total number of fno params
 params = nnx.state(fno_model, nnx.Param)
@@ -170,7 +87,7 @@ optimizer = optax.chain(optax.adam(learning_rate_scheduler))
 
 # create fol
 pi_fno_pr_learning = PhysicsInformedFourierParametricOperatorLearning(name="pi_fno_pr_learning",
-                                                                        control=multi_control,
+                                                                        control=identity_control,
                                                                         loss_function=transient_thermal_loss_2d,
                                                                         flax_neural_network=fno_model,
                                                                         optax_optimizer=optimizer)
@@ -180,8 +97,7 @@ pi_fno_pr_learning.Initialize()
 train_start_id = 0
 train_end_id = 6000
 
-pi_fno_pr_learning.Train(train_set=({"T_current":train_temperature_fields[train_start_id:train_end_id,:]},
-                                    {key:value[train_start_id:train_end_id,:] for key,value in training_context.items()}),
+pi_fno_pr_learning.Train(train_set=(train_temperature_fields[train_start_id:train_end_id,:],),
             batch_size=120,
             convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
             plot_settings={"plot_list":["total_loss"],"save_frequency":100},
@@ -193,19 +109,11 @@ initial_solution_id = 0
 initial_solution = train_temperature_fields[train_end_id + initial_solution_id,:]
 num_time_steps = 50
 
-# Predict dynamics with the current named-field FNO interface.
+# Predict dynamics with the FNO
 T_ifol_current = jnp.asarray(initial_solution).reshape(-1)
 T_ifols = T_ifol_current[None, :]
-prediction_context = {
-    "T_mask":temperature_mask[None, :],
-    "T_mask_value":temperature_mask_value[None, :],
-    "K0":jnp.asarray(train_heterogeneity_field).reshape(1, -1),
-}
 for _ in range(num_time_steps):
-    predicted_fields = pi_fno_pr_learning.Predict(
-        {"T_current":T_ifol_current[None, :], **prediction_context}
-    )
-    T_ifol_current = predicted_fields["T"][0].reshape(-1)
+    T_ifol_current = pi_fno_pr_learning.Predict(T_ifol_current[None, :])[0].reshape(-1)
     T_ifols = jnp.vstack((T_ifols, T_ifol_current))
 
 # predict dynamics with FE

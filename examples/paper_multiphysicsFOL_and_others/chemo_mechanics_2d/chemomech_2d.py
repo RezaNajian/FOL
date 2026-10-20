@@ -107,42 +107,7 @@ material_dict = {
     "gamma":0.01
 }
 
-class OperatorCompatibleChemoMechanicsLoss2DQuad(ChemoMechanicsLoss2DQuad):
-    """Support the named-field API used by the current PI-FNO trainer."""
-
-    def ComputeBatchLoss(self, batch_variables):
-        def compute_sample_loss(sample_variables):
-            def apply_boundary_conditions(field_name):
-                field = jnp.ravel(sample_variables[field_name])
-                mask = jnp.ravel(sample_variables[field_name + "_mask"])
-                mask_value = jnp.ravel(
-                    sample_variables[field_name + "_mask_value"]
-                )
-                return (1.0 - mask) * field + mask * mask_value
-
-            full_dof_vector = jnp.stack(
-                (
-                    apply_boundary_conditions("C"),
-                    apply_boundary_conditions("Ux"),
-                    apply_boundary_conditions("Uy"),
-                ),
-                axis=1,
-            ).reshape(-1, 1)
-            control_vector = jnp.ravel(sample_variables["K"]).reshape(-1, 1)
-            element_losses = self.ComputeElementsEnergies(
-                control_vector, full_dof_vector
-            )
-            return jnp.sum(element_losses) ** self.loss_function_exponent
-
-        sample_losses = jax.vmap(compute_sample_loss)(batch_variables)
-        return jnp.mean(sample_losses), (
-            jnp.min(sample_losses),
-            jnp.max(sample_losses),
-            jnp.mean(sample_losses),
-        )
-
-
-chemomech_loss_2d = OperatorCompatibleChemoMechanicsLoss2DQuad("chemomech_loss_2d",
+chemomech_loss_2d = ChemoMechanicsLoss2DQuad("chemomech_loss_2d",
                                                loss_settings={
                                                     "dirichlet_bc_dict": bc_dict,
                                                     "material_dict": material_dict,
@@ -150,65 +115,40 @@ chemomech_loss_2d = OperatorCompatibleChemoMechanicsLoss2DQuad("chemomech_loss_2
                                                 fe_mesh=fe_mesh)
 chemomech_loss_2d.Initialize()
 
-number_of_samples = K_matrix.shape[0]
-boundary_batch = {}
-for dof_name in chemomech_loss_2d.GetDOFs():
-    mask = jnp.zeros(fe_mesh.GetNumberOfNodes())
-    mask_value = jnp.zeros(fe_mesh.GetNumberOfNodes())
-    for boundary_name, boundary_value in bc_dict[dof_name].items():
-        boundary_node_ids = fe_mesh.GetNodeSet(boundary_name)
-        mask = mask.at[boundary_node_ids].set(1.0)
-        mask_value = mask_value.at[boundary_node_ids].set(boundary_value)
-    boundary_batch[dof_name + "_mask"] = jnp.broadcast_to(
-        mask, (number_of_samples, mask.size)
-    )
-    boundary_batch[dof_name + "_mask_value"] = jnp.broadcast_to(
-        mask_value, (number_of_samples, mask_value.size)
-    )
+def merge_state(dst: nnx.State, src: nnx.State):
+    for key, value in src.items():
+        if isinstance(value, nnx.State):
+            merge_state(dst[key], value)
+        else:
+            dst[key] = value
 
 
-class OriginalFNOAdapter(nnx.Module):
-    """Adapt the original Linen FNO to the named-field API used by the trainer."""
+fno_model = bridge.ToNNX(
+    FourierNeuralOperator2D(
+        modes1=12,
+        modes2=12,
+        width=34,
+        depth=4,
+        channels_last_proj=128,
+        out_channels=3,
+        padding=4,
+        output_scale=0.001,
+    ),
+    rngs=nnx.Rngs(0),
+).lazy_init(
+    K_matrix[0:1].reshape(1, model_settings["N"], model_settings["N"], 1)
+)
 
-    def __init__(self, *, rngs: nnx.Rngs):
-        original_fno = FourierNeuralOperator2D(
-            modes1=12,
-            modes2=12,
-            width=34,
-            depth=4,
-            channels_last_proj=128,
-            out_channels=3,
-            padding=4,
-            output_scale=0.001,
-        )
-        example_input = jnp.zeros(
-            (1, model_settings["N"], model_settings["N"], 1),
-            dtype=jnp.float32,
-        )
-        self.fno = bridge.ToNNX(original_fno, rngs=rngs).lazy_init(example_input)
-
-    def __call__(self, inputs):
-        fields = self.fno(inputs["K"])
-        return {
-            "C": fields[..., 0:1],
-            "Ux": fields[..., 1:2],
-            "Uy": fields[..., 2:3],
-        }
-
-
-fno_model = OriginalFNOAdapter(rngs=nnx.Rngs(0))
-
-warmup_inputs = {
-    "K": jnp.asarray(K_matrix[0:1]).reshape(
-        1, model_settings["N"], model_settings["N"], 1
-    )
-}
-_ = fno_model(warmup_inputs)
+# Store RNG keys as arrays so Orbax can restore the final checkpoint reliably.
+graph_def, state = nnx.split(fno_model)
+rngs_key = jax.tree.map(jax.random.key_data, state.filter(nnx.RngKey))
+merge_state(state, rngs_key)
+fno_model = nnx.merge(graph_def, state)
 
 # get total number of fno params
-# params = nnx.state(fno_model, nnx.Param)
-# total_params  = sum(np.prod(x.shape) for x in jax.tree_util.tree_leaves(params))
-# print(f"total number of fno network param:{total_params}")
+params = nnx.state(fno_model, nnx.Param)
+total_params = sum(np.prod(x.shape) for x in jax.tree_util.tree_leaves(params))
+print(f"total number of fno network param:{total_params}")
 
 num_epochs = 1000
 learning_rate_scheduler = optax.linear_schedule(init_value=1e-2, end_value=1e-3, transition_steps=num_epochs)
@@ -228,10 +168,8 @@ train_end_id = 5000
 test_start_id = 5000
 test_end_id = 6000
 
-pi_fno_pr_learning.Train(train_set=({"K":K_matrix[train_start_id:train_end_id,:]},
-                                    {key:value[train_start_id:train_end_id,:] for key,value in boundary_batch.items()}),
-          test_set=({"K":K_matrix[test_start_id:test_end_id,:]},
-                    {key:value[test_start_id:test_end_id,:] for key,value in boundary_batch.items()}),
+pi_fno_pr_learning.Train(train_set=(K_matrix[train_start_id:train_end_id,:],),
+          test_set=(K_matrix[test_start_id:test_end_id,:],),
           batch_size=100,
           convergence_settings={"num_epochs":num_epochs,
                                 "relative_error":1e-8,
@@ -281,18 +219,9 @@ for sid in sample_ids:
     os.makedirs(sample_dir, exist_ok=True)
 
     K_vec = np.array(K_matrix[sid, :])
-    prediction_variables = {
-        "K":K_vec[None, :],
-        **{key:value[sid:sid+1, :] for key,value in boundary_batch.items()},
-    }
-    predicted_fields = pi_fno_pr_learning.Predict(prediction_variables)
-    FOL_CUV = np.column_stack(
-        (
-            np.array(predicted_fields["C"][0]).reshape(-1),
-            np.array(predicted_fields["Ux"][0]).reshape(-1),
-            np.array(predicted_fields["Uy"][0]).reshape(-1),
-        )
-    )
+    FOL_CUV = np.array(
+        pi_fno_pr_learning.Predict(K_vec[None, :])
+    ).reshape(n_nodes, output_size)
     FE_CUV_flat = np.array(
         nonlinear_fe_solver.Solve(K_vec.flatten(), np.zeros(n_nodes * output_size))
     )
