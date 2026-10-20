@@ -189,8 +189,10 @@ class DeepNetwork(ABC):
 
             data (tuple[dict[str, jnp.ndarray], dict[str, jnp.ndarray]]):
                 Batch tuple ``(input_dict, target_dict)`` where:
+
                     - input_dict maps input names to arrays
                     - target_dict maps target names to arrays
+
                 Each array must have shape ``(batch_size, ...)`` where
                 axis 0 represents the batch dimension.
 
@@ -747,7 +749,6 @@ class DeepNetwork(ABC):
             None
         """
         pass
-
 
 
 
